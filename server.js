@@ -122,7 +122,18 @@ app.use(session({
   name: "wa.sid", secret: SESSION_SECRET, resave: false, saveUninitialized: false,
   cookie: { httpOnly: true, sameSite: "lax", secure: "auto", maxAge: 1000 * 60 * 60 * 12 }
 }));
-app.use(express.static(path.join(__dirname, "public"), { dotfiles: "deny", etag: true, maxAge: "1h" }));
+app.use(express.static(path.join(__dirname, "public"), {
+  dotfiles: "deny",
+  etag: true,
+  maxAge: "1h",
+  setHeaders(res, filePath) {
+    if (path.basename(filePath) === "index.html") {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+    }
+  }
+}));
 
 const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 const aggregateDiskStorage = {
