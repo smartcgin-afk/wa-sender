@@ -252,11 +252,22 @@ async function connectWhatsApp(userId) {
     sock.ev.on("contacts.update", contacts => {
       for (const contact of contacts || []) saveContactMetadata(userId, contact);
     });
+    sock.ev.on("lid-mapping.update", async mapping => {
+      const lid = String(mapping?.lid || "").trim();
+      const pn = String(mapping?.pn || "").trim();
+      if (!lid || !pn) return;
+      try {
+        await sock.signalRepository?.lidMapping?.storeLIDPNMappings?.([{ lid, pn }]);
+      } catch (error) {
+        console.warn("[WA LID MAP] Incoming mapping could not be persisted:", error?.message || error);
+      }
+      saveContactMetadata(userId, { id: pn, lid });
+    });
     sock.ev.on("messages.upsert", event => {
       for (const message of event?.messages || []) {
         if (message?.key?.fromMe || !message?.pushName) continue;
         const key = message.key;
-        const candidate = key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid || "";
+        const candidate = key.senderPn || key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid || "";
         if (String(candidate).endsWith("@s.whatsapp.net")) {
           saveContactMetadata(userId, { id: candidate, notify: message.pushName });
         }
