@@ -475,53 +475,94 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
   const reject = (status, message) => { cleanFiles(files); return res.status(status).json({ error: message }); };
   if (totalBytes > MAX_CAMPAIGN_BYTES) return reject(413, "Combined attachment size exceeds 200 MB.");
   if (!client?.sock || client.status !== "connected") return reject(400, "Connect WhatsApp before sending.");
-  if (campaignRuns.has(userId)) return reject(409, "A campaign is already running for this workspace.");
+  if (campaignRuns.has(userId)) return reject(409, "A batch is already active for this linked WhatsApp session.");
   let contacts;
   try { contacts = JSON.parse(req.body.contacts || "[]"); } catch { return reject(400, "Invalid contacts data."); }
   const message = String(req.body.message || "").trim().slice(0, 4096);
-  const delayMs = Math.min(60000, Math.max(1000, Number.parseInt(req.body.delayMs, 10) || 3000));
-  const randomizeDelay = req.body.randomizeDelay !== "false";
-  const stopOnError = req.body.stopOnError === "true";
+  const options = normalizeCampaignOptions({
+    delayBetweenMessages: req.body.delayBetweenMessages ?? req.body.delayMs,
+    randomizeDelay: req.body.randomizeDelay,
+    stopOnError: req.body.stopOnError
+  });
   if (req.body.confirmOptIn !== "true") return reject(400, "Confirm that every recipient has opted in.");
-  if (!Array.isArray(contacts) || contacts.length < 1 || contacts.length > MAX_CONTACTS) return reject(400, `Campaign must contain 1–${MAX_CONTACTS} contacts.`);
+  if (!Array.isArray(contacts) || contacts.length < 1 || contacts.length > MAX_CONTACTS) return reject(400, `Batch must contain 1–${MAX_CONTACTS} opted-in contacts.`);
   if (!message && files.length === 0) return reject(400, "Add a message or at least one attachment.");
   if (files.length > MAX_FILES) return reject(400, `Maximum ${MAX_FILES} attachments.`);
   const invalidFile = files.find(f => !allowedExtensions.has(path.extname(f.originalname).toLowerCase()));
   if (invalidFile) return reject(400, `Unsupported attachment type: ${path.extname(invalidFile.originalname)}.`);
   const oversizedFile = files.find(f => f.size > MAX_MEDIA_BYTES);
   if (oversizedFile) return reject(413, `Each attachment must be 50 MB or smaller: ${path.basename(oversizedFile.originalname)}.`);
+
   const normalized = [], seen = new Set();
   for (const c of contacts) {
     const phone = normalizePhone(c?.phone);
     if (!phone) return reject(400, "CSV contains an invalid phone number. Re-import and correct the CSV.");
     if (seen.has(phone)) return reject(400, "Duplicate contacts found. Re-import the CSV to deduplicate.");
-    seen.add(phone); normalized.push({ name: normalizeContactName(c.name), phone });
+    seen.add(phone);
+    const variables = sanitizeContactVariables(c?.variables);
+    normalized.push({ name: normalizeContactName(c?.name), phone, variables });
   }
 
-  const campaignId = crypto.randomUUID();
-  const now = new Date().toISOString();
-  db.prepare("INSERT INTO campaigns (id,user_id,total,accepted,failed,status,created_at) VALUES (?,?,?,0,0,'running',?)").run(campaignId, userId, normalized.length, now);
-  const insertItem = db.prepare("INSERT INTO campaign_items (campaign_id,user_id,name,phone,status,reason,updated_at) VALUES (?,?,?,?,?,?,?)");
-  for (const c of normalized) insertItem.run(campaignId, userId, c.name, c.phone, "pending", null, now);
-  const run = { campaignId, stopRequested: false, files, userId, delayMs, randomizeDelay, stopOnError };
+  const batchId = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const estimatedCompletionTime = new Date(Date.now() + normalized.length * (options.delayBetweenMessages + (options.randomizeDelay ? 1000 : 0))).toISOString();
+  const createBatch = db.transaction(() => {
+    db.prepare("INSERT INTO campaigns (id,user_id,total,accepted,failed,status,created_at) VALUES (?,?,?,0,0,'running',?)")
+      .run(batchId, userId, normalized.length, createdAt);
+    const insertItem = db.prepare("INSERT INTO campaign_items (campaign_id,user_id,name,phone,variables,status,reason,updated_at) VALUES (?,?,?,?,?,'pending',NULL,?)");
+    for (const contact of normalized) {
+      insertItem.run(batchId, userId, contact.name || null, contact.phone, JSON.stringify(contact.variables), createdAt);
+    }
+  });
+  createBatch();
+
+  const run = {
+    campaignId: batchId,
+    stopRequested: false,
+    stopReason: null,
+    files,
+    userId,
+    options
+  };
   campaignRuns.set(userId, run);
-  res.json({ ok: true, campaignId, total: normalized.length, attachmentCount: files.length, totalAttachmentBytes: totalBytes, delayMs, randomizeDelay, stopOnError, status: "running" });
+  res.status(202).json({
+    ok: true,
+    batchId,
+    campaignId: batchId,
+    status: "processing",
+    totalMessages: normalized.length,
+    attachmentCount: files.length,
+    totalAttachmentBytes: totalBytes,
+    options,
+    estimatedCompletionTime,
+    statusUrl: `/api/campaigns/${batchId}`
+  });
 
   (async () => {
-    let accepted = 0, failed = 0, stopped = false;
-    const items = db.prepare("SELECT id,name,phone FROM campaign_items WHERE campaign_id=? AND user_id=? ORDER BY id").all(campaignId, userId);
+    let accepted = 0, failed = 0;
+    const items = db.prepare("SELECT id,name,phone,variables FROM campaign_items WHERE campaign_id=? AND user_id=? ORDER BY id")
+      .all(batchId, userId);
     try {
       for (const item of items) {
-        if (run.stopRequested) { stopped = true; break; }
+        if (run.stopRequested) break;
         const liveClient = getClient(userId);
         if (!liveClient?.sock || liveClient.status !== "connected") {
-          db.prepare("UPDATE campaign_items SET status='failed',reason=?,updated_at=? WHERE id=? AND user_id=?").run("WhatsApp disconnected before this contact was processed.", new Date().toISOString(), item.id, userId);
-          failed++; continue;
+          db.prepare("UPDATE campaign_items SET status='failed',reason=?,updated_at=? WHERE id=? AND user_id=?")
+            .run("WhatsApp disconnected before this recipient was processed.", new Date().toISOString(), item.id, userId);
+          failed++;
+          run.stopRequested = true;
+          run.stopReason = "connection_lost";
+          break;
         }
-        const personalized = message
-          .replace(/\{\{\s*name\s*\}\}/gi, item.name || "there")
-          .replace(/\{\{\s*phone\s*\}\}/gi, item.phone);
-        let sentParts = 0, errors = [];
+
+        db.prepare("UPDATE campaign_items SET status='sending',reason=NULL,updated_at=? WHERE id=? AND user_id=? AND status='pending'")
+          .run(new Date().toISOString(), item.id, userId);
+        let variables = {};
+        try { variables = JSON.parse(item.variables || "{}"); } catch {}
+        const personalized = applyMessageTemplate(message, { name: item.name, phone: item.phone, variables });
+        let sentParts = 0;
+        const expectedParts = files.length || (personalized ? 1 : 0);
+
         try {
           const recipient = await resolveRecipientJid(liveClient.sock, item.phone);
           console.log("[WA ROUTING]", {
@@ -529,63 +570,106 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
             route: recipient.mode,
             target: maskJid(recipient.jid)
           });
-          if (personalized) {
+
+          if (files.length) {
+            for (let index = 0; index < files.length; index++) {
+              if (run.stopRequested) break;
+              const file = files[index];
+              const payload = attachmentPayload(file);
+              if (index === 0 && personalized) payload.caption = personalized;
+              const sentMessage = await liveClient.sock.sendMessage(recipient.jid, payload);
+              recordOutboundMessage(sentMessage, batchId, item.id, userId);
+              console.log("[WA SEND ACCEPTED]", {
+                messageId: sentMessage?.key?.id || null,
+                recipient: maskJid(sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`),
+                attachment: path.basename(file.originalname),
+                captionIncluded: index === 0 && Boolean(personalized)
+              });
+              sentParts++;
+            }
+          } else if (personalized) {
             const sentMessage = await liveClient.sock.sendMessage(recipient.jid, { text: personalized });
-            recordOutboundMessage(sentMessage, campaignId, item.id, userId);
+            recordOutboundMessage(sentMessage, batchId, item.id, userId);
             console.log("[WA SEND ACCEPTED]", {
               messageId: sentMessage?.key?.id || null,
-              recipient: maskJid(sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`),
+              recipient: maskJid(sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`)
             });
             sentParts++;
           }
-          for (const file of files) {
-            if (run.stopRequested) break;
-            const payload = attachmentPayload(file);
-            const sentMessage = await liveClient.sock.sendMessage(recipient.jid, payload);
-            recordOutboundMessage(sentMessage, campaignId, item.id, userId);
-            console.log("[WA SEND ACCEPTED]", {
-              messageId: sentMessage?.key?.id || null,
-              recipient: maskJid(sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`),
-              attachment: path.basename(file.originalname)
-            });
-            sentParts++;
-          }
-          const expectedParts = (personalized ? 1 : 0) + files.length;
+
           if (run.stopRequested && sentParts < expectedParts) {
-            db.prepare("UPDATE campaign_items SET status='stopped',reason=?,updated_at=? WHERE id=? AND user_id=?").run(sentParts ? "Campaign stopped after a partial send to this contact." : "Stopped before sending.", new Date().toISOString(), item.id, userId);
-            stopped = true; break;
+            db.prepare("UPDATE campaign_items SET status=?,reason=?,updated_at=? WHERE id=? AND user_id=?")
+              .run(sentParts ? "stopped" : "stopped",
+                sentParts ? `Batch cancelled after ${sentParts} of ${expectedParts} message part(s) for this recipient.` : "Cancelled before sending.",
+                new Date().toISOString(), item.id, userId);
+            if (sentParts > 0) accepted++;
+            break;
           }
+
           if (sentParts > 0) {
-            db.prepare("UPDATE campaign_items SET status='accepted',reason=?,updated_at=? WHERE id=? AND user_id=?").run("Accepted by WhatsApp session; delivery is not confirmed.", new Date().toISOString(), item.id, userId);
+            db.prepare("UPDATE campaign_items SET status='accepted',reason=?,updated_at=? WHERE id=? AND user_id=?")
+              .run("Accepted by WhatsApp session; delivery is not confirmed.", new Date().toISOString(), item.id, userId);
             accepted++;
           } else {
-            db.prepare("UPDATE campaign_items SET status='failed',reason=?,updated_at=? WHERE id=? AND user_id=?").run("No message content or attachment was sent.", new Date().toISOString(), item.id, userId);
+            db.prepare("UPDATE campaign_items SET status='failed',reason=?,updated_at=? WHERE id=? AND user_id=?")
+              .run("No message content or attachment was sent.", new Date().toISOString(), item.id, userId);
             failed++;
+            if (options.stopOnError) {
+              run.stopRequested = true;
+              run.stopReason = "send_error";
+            }
           }
         } catch (err) {
-          errors.push(String(err?.message || "WhatsApp send failed").slice(0, 220));
-          db.prepare("UPDATE campaign_items SET status='failed',reason=?,updated_at=? WHERE id=? AND user_id=?").run(errors.join("; "), new Date().toISOString(), item.id, userId);
-          failed++;
-          if (run.stopOnError) {
+          const reason = String(err?.message || "WhatsApp send failed").slice(0, 220);
+          if (sentParts > 0) {
+            db.prepare("UPDATE campaign_items SET status='partial',reason=?,updated_at=? WHERE id=? AND user_id=?")
+              .run(`Partially sent: ${sentParts}/${expectedParts} item(s) accepted. ${reason}`, new Date().toISOString(), item.id, userId);
+            accepted++;
+          } else {
+            db.prepare("UPDATE campaign_items SET status='failed',reason=?,updated_at=? WHERE id=? AND user_id=?")
+              .run(reason, new Date().toISOString(), item.id, userId);
+            failed++;
+          }
+          if (options.stopOnError) {
             run.stopRequested = true;
-            stopped = true;
+            run.stopReason = "send_error";
           }
         }
-        db.prepare("UPDATE campaigns SET accepted=?,failed=? WHERE id=? AND user_id=?").run(accepted, failed, campaignId, userId);
+
+        db.prepare("UPDATE campaigns SET accepted=?,failed=? WHERE id=? AND user_id=?")
+          .run(accepted, failed, batchId, userId);
+
         if (!run.stopRequested) {
-          const jitter = run.randomizeDelay ? Math.floor(Math.random() * 2001) : 0;
-          await new Promise(resolve => setTimeout(resolve, run.delayMs + jitter));
+          const jitter = options.randomizeDelay ? Math.floor(Math.random() * 2001) : 0;
+          await new Promise(resolve => setTimeout(resolve, options.delayBetweenMessages + jitter));
         }
       }
-      if (run.stopRequested || stopped) {
-        db.prepare("UPDATE campaign_items SET status='stopped',reason='Campaign stopped by user.',updated_at=? WHERE campaign_id=? AND user_id=? AND status='pending'").run(new Date().toISOString(), campaignId, userId);
-        db.prepare("UPDATE campaigns SET status='stopped',accepted=?,failed=?,completed_at=? WHERE id=? AND user_id=?").run(accepted, failed, new Date().toISOString(), campaignId, userId);
+
+      if (run.stopRequested) {
+        const now = new Date().toISOString();
+        const pendingReason = run.stopReason === "user"
+          ? "Cancelled by the team; this recipient was not sent."
+          : run.stopReason === "connection_lost"
+            ? "Skipped because the WhatsApp connection was lost."
+            : "Skipped after the first send failure.";
+        db.prepare("UPDATE campaign_items SET status='stopped',reason=?,updated_at=? WHERE campaign_id=? AND user_id=? AND status='pending'")
+          .run(pendingReason, now, batchId, userId);
+        const terminalStatus = run.stopReason === "user" ? "cancelled" : "failed";
+        db.prepare("UPDATE campaigns SET status=?,accepted=?,failed=?,completed_at=? WHERE id=? AND user_id=? AND status='running'")
+          .run(terminalStatus, accepted, failed, now, batchId, userId);
       } else {
-        db.prepare("UPDATE campaigns SET status='completed',accepted=?,failed=?,completed_at=? WHERE id=? AND user_id=?").run(accepted, failed, new Date().toISOString(), campaignId, userId);
+        db.prepare("UPDATE campaigns SET status='completed',accepted=?,failed=?,completed_at=? WHERE id=? AND user_id=? AND status='running'")
+          .run(accepted, failed, new Date().toISOString(), batchId, userId);
       }
     } catch (err) {
       console.error("Campaign worker error:", err?.message || err);
-      db.prepare("UPDATE campaigns SET status='error',completed_at=? WHERE id=? AND user_id=?").run(new Date().toISOString(), campaignId, userId);
+      const now = new Date().toISOString();
+      db.prepare("UPDATE campaign_items SET status='partial',reason='Worker interrupted while this recipient was being sent. Outcome is ambiguous; check WhatsApp before retrying.',updated_at=? WHERE campaign_id=? AND user_id=? AND status='sending'")
+        .run(now, batchId, userId);
+      db.prepare("UPDATE campaign_items SET status='stopped',reason='Not sent because the batch worker failed.',updated_at=? WHERE campaign_id=? AND user_id=? AND status='pending'")
+        .run(now, batchId, userId);
+      db.prepare("UPDATE campaigns SET status='failed',completed_at=? WHERE id=? AND user_id=? AND status='running'")
+        .run(now, batchId, userId);
     } finally {
       cleanFiles(files);
       campaignRuns.delete(userId);
