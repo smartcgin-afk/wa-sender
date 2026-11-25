@@ -1,6 +1,6 @@
-# WA Sender V4.3.1 — TEAM VINIT JAIN
+# WA Sender V4.4.0 — TEAM VINIT JAIN
 
-A self-hosted WhatsApp batch workspace for small, opted-in TEAM VINIT JAIN campaigns. Version 4.3.1 keeps the asynchronous batch workflow, persists PN↔LID mappings and retryable message content, and pins a Baileys 7.0.0-rc14 source commit containing the upstream single-encryption retry fix for WhatsApp 479 rejections.
+A self-hosted WhatsApp batch workspace for small, opted-in TEAM VINIT JAIN campaigns. Version 4.4.0 keeps the asynchronous batch workflow, persists PN↔LID mappings and retryable message content, matches delivery receipts by tracked message ID across PN/LID aliases, aggregates every message part conservatively, and enables Baileys initial history/bootstrap sync. It retains the upstream single-encryption retry fix for WhatsApp 479 rejections.
 
 ## Login
 
@@ -12,9 +12,10 @@ A self-hosted WhatsApp batch workspace for small, opted-in TEAM VINIT JAIN campa
 
 - This uses the unofficial Baileys WhatsApp Web integration. It is not the official WhatsApp Business Platform and may result in account restrictions. Use only with recipients who explicitly opted in, honour opt-outs, and follow WhatsApp terms and applicable law.
 - Batch creation returns immediately with a batch ID and status URL. Check the campaign report for per-recipient results.
-- “Accepted” means the linked session accepted the send request; it does **not** prove delivery or reading. WhatsApp delivery receipts arrive asynchronously and may be unavailable.
+- “Accepted” means the linked session accepted the send request; it does **not** prove delivery or reading. WhatsApp delivery receipts arrive asynchronously and may be unavailable. Receipts are matched to tracked outbound message IDs rather than relying only on the PN/LID alias's fromMe flag; multi-part attachment status is aggregated conservatively.
 - The WhatsApp transport is pinned to a Baileys 7.0.0-rc14 source commit containing the upstream retry-resend fix for the known 479 bug. It is still a release candidate, not a stable release; test the linked session and a small opted-in sample before any real campaign.
-- The app stores observed phone-number JID ↔ LID pairs from WhatsApp message/history/contact events, then prefers a known LID when sending. Unknown mappings still use the verified phone JID; the app never invents a LID.
+- The app stores observed phone-number JID ↔ LID pairs from WhatsApp message/history/contact events in both SQLite and Baileys' own LID store, and prefers a live or known LID when sending. Unknown mappings still use the verified phone JID; the app never invents a LID.
+- Recipient labels use the imported CSV name first, then an observed WhatsApp profile/push name, and finally the phone number. Baileys cannot always access the phone's locally saved address-book label; a missing name must never be shown as “Unknown User”.
 - Outgoing message content is stored in the local database for Baileys retry receipts and automatically cleared after 14 days. Keep `data/` private because it contains campaign and WhatsApp session data.
 - WhatsApp may reject or restrict new-chat messages at the account level. The app records explicit `ERROR` ACKs and does not automatically retry them. No unofficial WhatsApp Web library can guarantee a double tick.
 - Keep campaigns small and relevant. Do not use this for unsolicited bulk messaging.
