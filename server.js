@@ -597,7 +597,7 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
         const expectedParts = files.length || (personalized ? 1 : 0);
 
         try {
-          const recipient = await resolveRecipientJid(liveClient.sock, item.phone);
+          const recipient = await resolveRecipientJid(liveClient.sock, item.phone, userId);
           console.log("[WA ROUTING]", {
             phone: maskJid(`${item.phone}@s.whatsapp.net`),
             route: recipient.mode,
