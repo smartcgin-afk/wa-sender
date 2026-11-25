@@ -7,6 +7,7 @@ import {
   normalizeCampaignOptions,
   normalizeContactName,
   normalizePhone,
+  sanitizeContactVariables,
   summarizeBatch
 } from "../lib/campaign-utils.js";
 
@@ -63,6 +64,14 @@ test("clamps batch pacing to 15–60 seconds and preserves queue controls", () =
   });
   assert.equal(normalizeCampaignOptions({ delayBetweenMessages: 30000 }).delayBetweenMessages, 30000);
   assert.equal(normalizeCampaignOptions({ delayBetweenMessages: 90000 }).delayBetweenMessages, 60000);
+});
+
+test("sanitizes user-supplied CSV merge fields", () => {
+  assert.deepEqual(sanitizeContactVariables({
+    "Project Name": " Shantikunj City ",
+    "Budget": "35 Lakh",
+    "Long".repeat(30): "ignored key"
+  }), { projectname: "Shantikunj City", budget: "35 Lakh" });
 });
 
 test("summarizes per-recipient batch outcomes", () => {
