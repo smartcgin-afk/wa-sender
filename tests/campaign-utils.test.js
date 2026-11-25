@@ -1,4 +1,5 @@
 import test from "node:test";
+import { shouldRestoreWhatsAppSession, shouldStartFreshWhatsAppSession } from "../lib/connection-utils.js";
 import assert from "node:assert/strict";
 import {
   applyMessageTemplate,
@@ -173,4 +174,13 @@ test("aggregates delivery receipts across every message part without false deliv
   assert.equal(summarizeDeliveryReceipts(["read", "read"]), "read");
   assert.equal(summarizeDeliveryReceipts(["delivered", "accepted"]), "not_confirmed");
   assert.equal(summarizeDeliveryReceipts(["delivered", "error"]), "error");
+});
+
+
+test("manual disconnect suppresses startup session restore and forces a fresh QR session", () => {
+  assert.equal(shouldRestoreWhatsAppSession(true, false), true);
+  assert.equal(shouldRestoreWhatsAppSession(false, false), false);
+  assert.equal(shouldRestoreWhatsAppSession(true, true), false);
+  assert.equal(shouldStartFreshWhatsAppSession(true), true);
+  assert.equal(shouldStartFreshWhatsAppSession(false), false);
 });
