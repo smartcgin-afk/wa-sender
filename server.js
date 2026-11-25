@@ -45,7 +45,8 @@ if (SESSION_SECRET.length < 32) {
 }
 const MAX_CAMPAIGN_BYTES = 200 * 1024 * 1024;
 const MAX_FILES = 10;
-const MAX_CONTACTS = 40;
+const MAX_CONTACTS = 100;
+const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
 fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 for (const entry of fs.readdirSync(UPLOAD_DIR, { withFileTypes: true })) {
@@ -190,18 +191,18 @@ async function resolveRecipientJid(sock, phone) {
     throw new Error("WhatsApp could not verify this recipient number. Check the country code and number.");
   }
 
-  const rawLid = String(match.lid || "").trim();
-  if (rawLid) {
-    const lidJid = rawLid.includes("@") ? rawLid : rawLid + "@lid";
-    if (lidJid.endsWith("@lid")) {
-      // Persist the pair before sending, following OpenWA's documented PN↔LID approach.
-      try {
-        await sock.signalRepository?.lidMapping?.storeLIDPNMappings?.([{ lid: lidJid, pn: pnJid }]);
-      } catch (error) {
-        console.warn("[WA LID MAP] Could not persist recipient mapping:", error?.message || error);
-      }
-      return { jid: lidJid, mode: "lid" };
-    }
+  // Baileys 6.7.x onWhatsApp() returns existence + PN JID, not a guaranteed LID.
+  // Use a LID only when this linked session already has a trusted PN→LID mapping.
+  let mappedLid = null;
+  try {
+    mappedLid = await sock.signalRepository?.lidMapping?.getLIDForPN?.(pnJid);
+  } catch (error) {
+    console.warn("[WA LID LOOKUP] Cached LID lookup failed:", error?.message || error);
+  }
+  const discoveredLid = String(mappedLid || match.lid || "").trim();
+  if (discoveredLid) {
+    const lidJid = discoveredLid.includes("@") ? discoveredLid : discoveredLid + "@lid";
+    if (lidJid.endsWith("@lid")) return { jid: lidJid, mode: "lid_cached" };
   }
 
   const verifiedJid = String(match.jid || pnJid).trim();
@@ -459,6 +460,8 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
   if (files.length > MAX_FILES) return reject(400, `Maximum ${MAX_FILES} attachments.`);
   const invalidFile = files.find(f => !allowedExtensions.has(path.extname(f.originalname).toLowerCase()));
   if (invalidFile) return reject(400, `Unsupported attachment type: ${path.extname(invalidFile.originalname)}.`);
+  const oversizedFile = files.find(f => f.size > MAX_MEDIA_BYTES);
+  if (oversizedFile) return reject(413, `Each attachment must be 50 MB or smaller: ${path.basename(oversizedFile.originalname)}.`);
   const normalized = [], seen = new Set();
   for (const c of contacts) {
     const phone = normalizePhone(c?.phone);
@@ -535,6 +538,10 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
           errors.push(String(err?.message || "WhatsApp send failed").slice(0, 220));
           db.prepare("UPDATE campaign_items SET status='failed',reason=?,updated_at=? WHERE id=? AND user_id=?").run(errors.join("; "), new Date().toISOString(), item.id, userId);
           failed++;
+          if (run.stopOnError) {
+            run.stopRequested = true;
+            stopped = true;
+          }
         }
         db.prepare("UPDATE campaigns SET accepted=?,failed=? WHERE id=? AND user_id=?").run(accepted, failed, campaignId, userId);
         if (!run.stopRequested) {
@@ -581,9 +588,9 @@ app.get("/api/campaigns/:id", requireAuth, (req, res) => {
 app.get("/api/campaigns/:id/export.csv", requireAuth, (req, res) => {
   const campaign = db.prepare("SELECT id FROM campaigns WHERE id=? AND user_id=?").get(req.params.id, req.session.userId);
   if (!campaign) return res.status(404).send("Not found");
-  const items = db.prepare("SELECT name,phone,status,reason,updated_at FROM campaign_items WHERE campaign_id=? AND user_id=? ORDER BY id").all(req.params.id, req.session.userId);
+  const items = db.prepare("SELECT name,phone,status,delivery_status,reason,updated_at FROM campaign_items WHERE campaign_id=? AND user_id=? ORDER BY id").all(req.params.id, req.session.userId);
   const quote = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const csv = ["Name,Mobile,Status,Reason,Updated At", ...items.map(i => [i.name, i.phone, i.status, i.reason, i.updated_at].map(quote).join(","))].join("\n");
+  const csv = ["Name,Mobile,Send Status,Delivery,Reason,Updated At", ...items.map(i => [i.name, i.phone, i.status, i.delivery_status, i.reason, i.updated_at].map(quote).join(","))].join("\n");
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="campaign-${req.params.id}.csv"`);
   res.send(csv);
