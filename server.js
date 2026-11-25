@@ -67,6 +67,11 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL, user_id TEXT NOT NULL,
     name TEXT, phone TEXT NOT NULL, status TEXT NOT NULL, reason TEXT, updated_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS contacts (
+    user_id TEXT NOT NULL, phone TEXT NOT NULL, name TEXT NOT NULL, jid TEXT, lid TEXT,
+    source TEXT NOT NULL DEFAULT 'push_name', updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, phone)
+  );
 `);
 function ensureColumn(table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
@@ -153,6 +158,22 @@ function normalizePhone(value) {
   if (digits.length < 8 || digits.length > 15 || digits.startsWith("0")) return null;
   return digits;
 }
+function saveContactMetadata(userId, contact, fallbackName = "") {
+  const name = [contact?.name, contact?.verifiedName, contact?.notify, contact?.pushName, fallbackName]
+    .map(value => String(value || "").trim()).find(Boolean);
+  if (!name || /^unknown user$/i.test(name)) return;
+  const ids = [contact?.phoneNumber, contact?.jid, contact?.id, contact?.lid]
+    .map(value => String(value || "").trim()).filter(Boolean);
+  const pnJid = ids.find(value => /@(s\.whatsapp\.net|c\.us|hosted)$/i.test(value));
+  const rawPhone = pnJid ? pnJid.split("@")[0].split(":")[0] : (contact?.phoneNumber || contact?.phone || "");
+  const phone = normalizePhone(rawPhone);
+  if (!phone) return;
+  const lid = ids.find(value => value.endsWith("@lid")) || null;
+  const jid = pnJid || (phone + "@s.whatsapp.net");
+  const source = contact?.name ? "saved_contact" : contact?.verifiedName ? "verified_name" : "push_name";
+  db.prepare("INSERT INTO contacts (user_id,phone,name,jid,lid,source,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,phone) DO UPDATE SET name=CASE WHEN excluded.source='saved_contact' OR contacts.source!='saved_contact' THEN excluded.name ELSE contacts.name END,jid=COALESCE(excluded.jid,contacts.jid),lid=COALESCE(excluded.lid,contacts.lid),source=CASE WHEN excluded.source='saved_contact' OR contacts.source!='saved_contact' THEN excluded.source ELSE contacts.source END,updated_at=excluded.updated_at")
+    .run(userId, phone, name, jid, lid, source, new Date().toISOString());
+}
 
 // Baileys 6.7.24 onWhatsApp() can return the contact's LID alongside the PN.
 // Prefer that recipient address when WhatsApp provides it; otherwise keep the PN JID.
@@ -198,6 +219,23 @@ async function connectWhatsApp(userId) {
     if (!current || current.generation !== generation || current.manualDisconnect) { try { sock.end(undefined); } catch {} return; }
     waClients.set(userId, { ...current, sock, connecting: false });
     sock.ev.on("creds.update", saveCreds);
+    // Cache contact names when WhatsApp actually supplies them. Unsaved contacts may have no name until they reply.
+    sock.ev.on("contacts.upsert", contacts => {
+      for (const contact of contacts || []) saveContactMetadata(userId, contact);
+    });
+    sock.ev.on("contacts.update", contacts => {
+      for (const contact of contacts || []) saveContactMetadata(userId, contact);
+    });
+    sock.ev.on("messages.upsert", event => {
+      for (const message of event?.messages || []) {
+        if (message?.key?.fromMe || !message?.pushName) continue;
+        const key = message.key;
+        const candidate = key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid || "";
+        if (String(candidate).endsWith("@s.whatsapp.net")) {
+          saveContactMetadata(userId, { id: candidate, notify: message.pushName });
+        }
+      }
+    });
     // Diagnostic only: WhatsApp delivery/ack state arrives asynchronously after sendMessage resolves.
     sock.ev.on("messages.update", updates => {
       for (const entry of updates || []) {
@@ -340,7 +378,10 @@ app.post("/api/contacts/preview", requireAuth, csvUpload.single("csv"), (req, re
   for (const row of rows) {
     const phone = normalizePhone(row[phoneKey]);
     if (!phone || seen.has(phone)) continue;
-    seen.add(phone); contacts.push({ name: nameKey ? String(row[nameKey] || "").trim().slice(0, 100) : "", phone });
+    seen.add(phone);
+    const csvName = nameKey ? String(row[nameKey] || "").trim().slice(0, 100) : "";
+    const cachedName = db.prepare("SELECT name FROM contacts WHERE user_id=? AND phone=?").get(req.session.userId, phone)?.name || "";
+    contacts.push({ name: csvName || cachedName, phone });
   }
   if (!contacts.length) return res.status(400).json({ error: "No valid phone numbers found." });
   if (contacts.length > MAX_CONTACTS) return res.status(400).json({ error: `Maximum ${MAX_CONTACTS} contacts per campaign.` });
