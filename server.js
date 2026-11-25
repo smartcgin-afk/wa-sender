@@ -332,7 +332,7 @@ function recordOutboundMessage(message, campaignId, itemId, userId) {
 
 async function connectWhatsApp(userId) {
   const old = getClient(userId);
-  if (old?.status === "connected" || old?.connecting || old?.status === "qr") return;
+  if (old?.status === "connected" || old?.connecting || old?.status === "qr" || old?.status === "disconnecting") return;
   if (old?.reconnectTimer) clearTimeout(old.reconnectTimer);
 
   // A user-initiated disconnect is a hard reset: never reuse the old linked-device credentials.
@@ -361,7 +361,11 @@ async function connectWhatsApp(userId) {
     const current = getClient(userId);
     if (!current || current.generation !== generation || current.manualDisconnect) { try { sock.end(undefined); } catch {} return; }
     waClients.set(userId, { ...current, sock, connecting: false });
-    sock.ev.on("creds.update", saveCreds);
+    sock.ev.on("creds.update", update => {
+      const active = getClient(userId);
+      // Ignore credentials emitted late by a socket that has already been manually disconnected.
+      if (active?.generation === generation && !active.manualDisconnect) saveCreds(update);
+    });
     // Cache contact names when WhatsApp actually supplies them. Unsaved contacts may have no name until they reply.
     sock.ev.on("contacts.upsert", contacts => {
       for (const contact of contacts || []) saveContactMetadata(userId, contact, "", sock);
