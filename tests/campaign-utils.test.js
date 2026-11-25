@@ -14,6 +14,8 @@ import {
   mapBaileysDeliveryStatus,
   parseRetryMessage,
   serializeRetryMessage,
+  recipientDisplayLabel,
+  summarizeDeliveryReceipts,
   sanitizeContactVariables,
   summarizeBatch
 } from "../lib/campaign-utils.js";
@@ -154,4 +156,21 @@ test("serializes and restores retry message binary fields", () => {
   assert.deepEqual(Buffer.from(restored.imageMessage.fileSha256), Buffer.from([5, 6, 7]));
   assert.equal(parseRetryMessage("invalid json"), undefined);
   assert.equal(serializeRetryMessage(null), null);
+});
+
+
+test("uses the supplied contact name or a clean phone-number fallback", () => {
+  assert.equal(recipientDisplayLabel("Rahul Sharma", "919876543210"), "Rahul Sharma");
+  assert.equal(recipientDisplayLabel("Unknown User", "919876543210"), "+919876543210");
+  assert.equal(recipientDisplayLabel("", "9876543210"), "+919876543210");
+  assert.equal(recipientDisplayLabel("", "bad-number"), "Number unavailable");
+});
+
+test("aggregates delivery receipts across every message part without false delivery", () => {
+  assert.equal(summarizeDeliveryReceipts(["accepted"]), "not_confirmed");
+  assert.equal(summarizeDeliveryReceipts(["server_ack", "server_ack"]), "server_ack");
+  assert.equal(summarizeDeliveryReceipts(["delivered", "read"]), "delivered");
+  assert.equal(summarizeDeliveryReceipts(["read", "read"]), "read");
+  assert.equal(summarizeDeliveryReceipts(["delivered", "accepted"]), "not_confirmed");
+  assert.equal(summarizeDeliveryReceipts(["delivered", "error"]), "error");
 });
