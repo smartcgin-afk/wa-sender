@@ -48,7 +48,7 @@
       <div class="stats"><div class="stat"><strong id="totalStat">0</strong><span>Total contacts</span></div><div class="stat green"><strong id="acceptedStat">0</strong><span>Sent (session accepted)</span></div><div class="stat"><strong id="partialStat">0</strong><span>Partial</span></div><div class="stat red"><strong id="failedStat">0</strong><span>Failed</span></div><div class="stat"><strong id="pendingStat">0</strong><span>Pending</span></div><div class="stat"><strong id="stoppedStat">0</strong><span>Stopped</span></div></div>
       <div class="progressline"><div class="progressbar"><span id="batchProgressFill"></span></div><small id="batchProgressText">0 / 0</small></div>
       <div id="reportNote" class="notice">Your recipient-wise batch results will appear here. Session acceptance is not proof of delivery.</div>
-      <div class="tablewrap"><table><thead><tr><th>Name</th><th>Mobile number</th><th>Send status</th><th>Delivery</th><th>Reason</th></tr></thead><tbody id="reportBody"><tr><td colspan="5" class="muted">No campaign activity yet.</td></tr></tbody></table></div>
+      <div class="tablewrap"><table><thead><tr><th>Contact name / number</th><th>Mobile number</th><th>Send status</th><th>Delivery</th><th>Reason</th></tr></thead><tbody id="reportBody"><tr><td colspan="5" class="muted">No campaign activity yet.</td></tr></tbody></table></div>
     </section>
   </main>
   <div class="footnote">WA SENDER · <span id="footerVersion">VERSION CHECKING</span> · DESIGNED BY SARTHAK JAIN <span style="padding:0 7px">•</span> <button id="logoutBtn" class="btn soft" style="padding:6px 10px;font-size:10px">Exit workspace</button><span style="padding:0 7px">•</span><button id="disconnectBtn2" class="btn danger" style="padding:6px 10px;font-size:10px">Disconnect WhatsApp</button></div>
@@ -140,7 +140,7 @@ async function refreshReport(){
     $('batchProgressFill').style.width=percent+'%';
     $('batchProgressText').textContent=processed+' / '+progress.total+' · '+percent+'%';
     $('reportBody').innerHTML=items.map(item=>{
-      const name=item.name&&!['unknown','unknown user','unknown contact','not available','n/a','null'].includes(String(item.name).trim().toLowerCase())?item.name:('+'+item.phone);
+      const name=item.display_name||('+'+item.phone);
       const viewStatus=item.status==='accepted'?'sent':item.status==='stopped'?'cancelled':item.status;
       return '<tr><td>'+escapeHtml(name)+'</td><td>'+escapeHtml('+'+item.phone)+'</td><td class="status '+escapeHtml(viewStatus)+'">'+escapeHtml(viewStatus)+'</td><td>'+escapeHtml(deliveryLabel[item.delivery_status]||'Not confirmed')+'</td><td>'+escapeHtml(item.reason||'—')+'</td></tr>';
     }).join('');
