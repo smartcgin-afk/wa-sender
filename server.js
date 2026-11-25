@@ -98,6 +98,9 @@ ensureColumn("campaigns", "completed_at", "TEXT");
 ensureColumn("campaign_items", "delivery_status", "TEXT NOT NULL DEFAULT 'not_confirmed'");
 ensureColumn("campaign_items", "variables", "TEXT NOT NULL DEFAULT '{}'");
 ensureColumn("campaign_item_messages", "message_json", "TEXT");
+const retryMessageRetentionCutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+db.prepare("UPDATE campaign_item_messages SET message_json=NULL WHERE message_json IS NOT NULL AND updated_at < ?")
+  .run(retryMessageRetentionCutoff);
 db.prepare("UPDATE campaign_items SET name=NULL WHERE name IS NOT NULL AND lower(trim(name)) IN ('unknown user','unknown','unknown contact','not available','n/a','null')").run();
 const startupTime = new Date().toISOString();
 db.prepare("UPDATE campaign_items SET status='stopped', reason='Server restarted before this recipient was processed. It was not automatically retried.', updated_at=? WHERE status='pending' AND campaign_id IN (SELECT id FROM campaigns WHERE status='running')").run(startupTime);
