@@ -85,6 +85,7 @@ function ensureColumn(table, column, definition) {
 ensureColumn("campaigns", "status", "TEXT NOT NULL DEFAULT 'completed'");
 ensureColumn("campaigns", "completed_at", "TEXT");
 ensureColumn("campaign_items", "delivery_status", "TEXT NOT NULL DEFAULT 'not_confirmed'");
+db.prepare("UPDATE campaign_items SET name=NULL WHERE name IS NOT NULL AND lower(trim(name)) IN ('unknown user','unknown','unknown contact','not available','n/a','null')").run();
 db.prepare("UPDATE campaign_items SET status='stopped', reason='Server restarted before this contact was processed.', updated_at=? WHERE status='pending' AND campaign_id IN (SELECT id FROM campaigns WHERE status='running')").run(new Date().toISOString());
 db.prepare("UPDATE campaigns SET status='interrupted', completed_at=? WHERE status='running'").run(new Date().toISOString());
 
@@ -166,10 +167,15 @@ function normalizePhone(value) {
   if (digits.length < 8 || digits.length > 15 || digits.startsWith("0")) return null;
   return digits;
 }
+function normalizeContactName(value) {
+  const name = String(value || "").replace(/\s+/g, " ").trim().slice(0, 100);
+  if (!name || /^(unknown(?:\s+user)?|unknown\s+contact|not\s+available|n\/a|null)$/i.test(name)) return "";
+  return name;
+}
 function saveContactMetadata(userId, contact, fallbackName = "") {
   const name = [contact?.name, contact?.verifiedName, contact?.notify, contact?.pushName, fallbackName]
-    .map(value => String(value || "").trim()).find(Boolean);
-  if (!name || /^unknown user$/i.test(name)) return;
+    .map(normalizeContactName).find(Boolean);
+  if (!name) return;
   const ids = [contact?.phoneNumber, contact?.jid, contact?.id, contact?.lid]
     .map(value => String(value || "").trim()).filter(Boolean);
   const pnJid = ids.find(value => /@(s\.whatsapp\.net|c\.us|hosted)$/i.test(value));
@@ -440,7 +446,7 @@ app.post("/api/contacts/preview", requireAuth, csvUpload.single("csv"), (req, re
     const phone = normalizePhone(row[phoneKey]);
     if (!phone || seen.has(phone)) continue;
     seen.add(phone);
-    const csvName = nameKey ? String(row[nameKey] || "").trim().slice(0, 100) : "";
+    const csvName = normalizeContactName(nameKey ? row[nameKey] : "");
     const cachedName = db.prepare("SELECT name FROM contacts WHERE user_id=? AND phone=?").get(req.session.userId, phone)?.name || "";
     contacts.push({ name: csvName || cachedName, phone });
   }
@@ -491,7 +497,7 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
     const phone = normalizePhone(c?.phone);
     if (!phone) return reject(400, "CSV contains an invalid phone number. Re-import and correct the CSV.");
     if (seen.has(phone)) return reject(400, "Duplicate contacts found. Re-import the CSV to deduplicate.");
-    seen.add(phone); normalized.push({ name: String(c.name || "").slice(0, 100), phone });
+    seen.add(phone); normalized.push({ name: normalizeContactName(c.name), phone });
   }
 
   const campaignId = crypto.randomUUID();
