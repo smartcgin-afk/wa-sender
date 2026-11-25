@@ -1,6 +1,6 @@
-# WA Sender V4.4.0 — TEAM VINIT JAIN
+# WA Sender V4.5.0 — TEAM VINIT JAIN
 
-A self-hosted WhatsApp batch workspace for small, opted-in TEAM VINIT JAIN campaigns. Version 4.4.0 keeps the asynchronous batch workflow, persists PN↔LID mappings and retryable message content, matches delivery receipts by tracked message ID across PN/LID aliases, aggregates every message part conservatively, and enables Baileys initial history/bootstrap sync. It retains the upstream single-encryption retry fix for WhatsApp 479 rejections.
+A self-hosted WhatsApp batch workspace for small, opted-in TEAM VINIT JAIN campaigns. Version 4.5.0 retains the asynchronous batch workflow, PN↔LID mappings, retryable message content, receipt-based delivery reporting and the upstream single-encryption retry fix. A manual WhatsApp disconnect is now a persistent reset: the old linked-device credentials are not restored, and the next Connect starts a fresh QR pairing flow. Unexpected network drops may still auto-reconnect.
 
 ## Login
 
@@ -15,6 +15,7 @@ A self-hosted WhatsApp batch workspace for small, opted-in TEAM VINIT JAIN campa
 - “Accepted” means the linked session accepted the send request; it does **not** prove delivery or reading. WhatsApp delivery receipts arrive asynchronously and may be unavailable. Receipts are matched to tracked outbound message IDs rather than relying only on the PN/LID alias's fromMe flag; multi-part attachment status is aggregated conservatively.
 - The WhatsApp transport is pinned to a Baileys 7.0.0-rc14 source commit containing the upstream retry-resend fix for the known 479 bug. It is still a release candidate, not a stable release; test the linked session and a small opted-in sample before any real campaign.
 - The app stores observed phone-number JID ↔ LID pairs from WhatsApp message/history/contact events in both SQLite and Baileys' own LID store, and prefers a live or known LID when sending. Unknown mappings still use the verified phone JID; the app never invents a LID.
+- A manual Disconnect persists a reset flag in SQLite and removes the saved linked-device credentials. Server startup skips restoration while that flag is active; the next explicit Connect clears the old state and produces a fresh QR. Temporary network disconnects retain the existing automatic reconnect behavior.
 - Recipient labels use the imported CSV name first, then an observed WhatsApp profile/push name, and finally the phone number. Baileys cannot always access the phone's locally saved address-book label; a missing name must never be shown as “Unknown User”. The HTML shell is sent with no-store headers so app upgrades do not leave stale UI cached in the browser.
 - Outgoing message content is stored in the local database for Baileys retry receipts and automatically cleared after 14 days. Keep `data/` private because it contains campaign and WhatsApp session data.
 - WhatsApp may reject or restrict new-chat messages at the account level. The app records explicit `ERROR` ACKs and does not automatically retry them. No unofficial WhatsApp Web library can guarantee a double tick.
