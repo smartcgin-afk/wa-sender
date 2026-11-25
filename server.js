@@ -13,7 +13,7 @@ import crypto from "node:crypto";
 import {
   applyMessageTemplate, extractContactVariables, findContactColumns,
   normalizeCampaignOptions, normalizeContactName, normalizePhone,
-  sanitizeContactVariables, summarizeBatch
+  sanitizeContactVariables, summarizeBatch, extractPnLidPair, normalizeLidJid, normalizePnJid, chooseRecipientJid
 } from "./lib/campaign-utils.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -83,6 +83,10 @@ db.exec(`
     user_id TEXT NOT NULL, phone TEXT NOT NULL, name TEXT NOT NULL, jid TEXT, lid TEXT,
     source TEXT NOT NULL DEFAULT 'push_name', updated_at TEXT NOT NULL,
     PRIMARY KEY (user_id, phone)
+  );
+  CREATE TABLE IF NOT EXISTS contact_jid_mappings (
+    user_id TEXT NOT NULL, phone TEXT NOT NULL, pn_jid TEXT NOT NULL, lid TEXT NOT NULL,
+    updated_at TEXT NOT NULL, PRIMARY KEY (user_id, phone)
   );
 `);
 function ensureColumn(table, column, definition) {
