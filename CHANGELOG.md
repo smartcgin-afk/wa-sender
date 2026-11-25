@@ -8,6 +8,7 @@
 - Enable Baileys' supported initial history/bootstrap sync and persist observed PN↔LID pairs into both SQLite and Baileys' internal mapping store.
 - Normalize contact-name source precedence so a placeholder saved-name cannot override a valid verified or push name.
 - Use CSV name, then WhatsApp profile/push name, then phone number; do not display “Unknown User”.
+- Prevent browser caching of the HTML shell so users do not keep seeing a stale embedded UI after an app upgrade.
 - Retain the v4.3.1 upstream retry resend fix and 14-day retry-message retention.
 
 ## 4.3.1 — 2026-11-25
