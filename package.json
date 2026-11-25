@@ -1,6 +1,6 @@
 {
   "name": "wa-bulk-sender",
-  "version": "4.4.0",
+  "version": "4.5.0",
   "private": true,
   "type": "module",
   "description": "TEAM VINIT JAIN shared-workspace WhatsApp batch sender with queued campaigns, contact mail merge and per-recipient delivery reporting",
