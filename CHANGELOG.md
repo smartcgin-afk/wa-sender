@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.3.1 — 2026-11-25
+
+### WhatsApp retry and 479 fix
+- Pin Baileys source commit `cd4715ef2f26571c21f1d338ecb5dbc01eca0142`, which removes retry participants from regular fan-out and encrypts retry resends only once for 1:1 and group messages.
+- Assert the retry participant's Signal session before the dedicated retry encryption step.
+- Persist outgoing message content in SQLite and provide Baileys `getMessage` so retry receipts can restore content after an in-memory cache miss or app restart.
+- Serialize Buffer and Uint8Array fields for text/media retry messages.
+- Clear stored retry message bodies after 14 days.
+- Keep WhatsApp ERROR ACKs such as 479 visible and do not automatically retry rejected sends.
+
+### Verification
+- Added unit coverage for retry-message binary serialization and restoration.
+- CI checks package installation and Node tests; live WhatsApp delivery still needs an opted-in linked-device test.
+- Baileys remains a release-candidate source pin. Upstream PR #2898 was still open when this version was prepared.
 ## 4.3.0 — 2026-11-25
 
 ### WhatsApp transport and LID routing
