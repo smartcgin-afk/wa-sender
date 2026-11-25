@@ -1,5 +1,12 @@
 # Changelog
 
+## 4.5.0
+- Treat a user-initiated WhatsApp disconnect as a persistent manual reset; suppress automatic session restoration after a restart.
+- Remove the previous linked-device credentials before the next explicit Connect so WhatsApp presents a fresh QR code.
+- Keep automatic reconnect only for unexpected connection drops; invalidate late events from the socket that was manually disconnected.
+- Refresh the app with a responsive premium glassmorphism interface, cleaner spacing, accessible focus styles and the “Designed by Sarthak Jain” signature.
+
+
 ## 4.4.0
 - Match one-to-one delivery ACK events by the persisted outbound message ID, not only by the alias-dependent fromMe flag.
 - Aggregate delivery state across all message parts sent to one recipient; do not mark a multi-attachment recipient delivered after only one part is confirmed.
