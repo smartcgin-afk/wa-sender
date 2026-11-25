@@ -56,12 +56,13 @@ test("extracts custom CSV fields and applies mail-merge placeholders", () => {
   );
 });
 
-test("clamps batch pacing to 15–60 seconds and preserves queue controls", () => {
+test("clamps batch pacing to OpenWA's 1–60 second range and preserves queue controls", () => {
   assert.deepEqual(normalizeCampaignOptions({ delayMs: 1000, randomizeDelay: false, stopOnError: true }), {
-    delayBetweenMessages: 15000,
+    delayBetweenMessages: 1000,
     randomizeDelay: false,
     stopOnError: true
   });
+  assert.equal(normalizeCampaignOptions({}).delayBetweenMessages, 3000);
   assert.equal(normalizeCampaignOptions({ delayBetweenMessages: 30000 }).delayBetweenMessages, 30000);
   assert.equal(normalizeCampaignOptions({ delayBetweenMessages: 90000 }).delayBetweenMessages, 60000);
 });
@@ -70,7 +71,7 @@ test("sanitizes user-supplied CSV merge fields", () => {
   assert.deepEqual(sanitizeContactVariables({
     "Project Name": " Shantikunj City ",
     "Budget": "35 Lakh",
-    "Long".repeat(30): "ignored key"
+    ["Long".repeat(30)]: "ignored key"
   }), { projectname: "Shantikunj City", budget: "35 Lakh" });
 });
 
