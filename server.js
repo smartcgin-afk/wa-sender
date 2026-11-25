@@ -14,7 +14,8 @@ import crypto from "node:crypto";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const ACCESS_CODE = process.env.ACCESS_CODE || "Teamvinitjain";
+const ACCESS_CODE = process.env.ACCESS_CODE || "";
+const TEAM_MEMBERS = JSON.parse(process.env.TEAM_MEMBERS || "[]");
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 const DATA_DIR = path.join(__dirname, "data");
 const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
@@ -188,25 +189,34 @@ async function connectWhatsApp(userId) {
 }
 
 // Restore session directories belonging to workspaces that were previously connected.
-for (const id of fs.readdirSync(SESSIONS_DIR, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name)) {
-  connectWhatsApp(id).catch(() => {});
+for (const member of TEAM_MEMBERS) {
+  const id = crypto.createHmac("sha256", SESSION_SECRET).update(String(member.name).toLowerCase()).digest("hex");
+  if (fs.existsSync(userSessionDir(id))) connectWhatsApp(id).catch(() => {});
 }
 
 app.post("/api/unlock", (req, res) => {
+  if (!ACCESS_CODE || TEAM_MEMBERS.length === 0) return res.status(503).json({ error: "Admin setup is incomplete. Configure ACCESS_CODE and TEAM_MEMBERS in .env." });
   const ip = req.ip || req.socket.remoteAddress || "unknown";
   const now = Date.now();
   const attempts = (unlockAttempts.get(ip) || []).filter(t => now - t < 15 * 60 * 1000);
   if (attempts.length >= 10) return res.status(429).json({ error: "Too many attempts. Try again in 15 minutes." });
+  const memberName = String(req.body.member || "").trim().slice(0, 60);
+  const pin = String(req.body.pin || "");
+  const member = TEAM_MEMBERS.find(m => String(m.name || "").toLowerCase() === memberName.toLowerCase());
+  const pinHash = crypto.createHash("sha256").update(pin).digest("hex");
+  const storedHash = String(member?.pin_sha256 || "");
+  const pinValid = !!member && storedHash.length === 64 && crypto.timingSafeEqual(Buffer.from(pinHash), Buffer.from(storedHash));
   const submitted = Buffer.from(String(req.body.code || ""));
   const expected = Buffer.from(ACCESS_CODE);
-  const valid = submitted.length === expected.length && crypto.timingSafeEqual(submitted, expected);
+  const codeValid = !!ACCESS_CODE && submitted.length === expected.length && crypto.timingSafeEqual(submitted, expected);
+  const valid = pinValid && codeValid;
   if (!valid) {
     attempts.push(now); unlockAttempts.set(ip, attempts);
     return res.status(401).json({ error: "Incorrect access code. Please try again." });
   }
   unlockAttempts.delete(ip);
-  req.session.userId = crypto.randomUUID();
-  req.session.label = "Sarthak Jain Workspace";
+  req.session.userId = crypto.createHmac("sha256", SESSION_SECRET).update(member.name.toLowerCase()).digest("hex");
+  req.session.label = member.name;
   req.session.save(err => {
     if (err) return res.status(500).json({ error: "Could not create workspace session." });
     res.json({ ok: true, label: req.session.label });
@@ -216,7 +226,7 @@ app.post("/api/unlock", (req, res) => {
 app.post("/api/logout", requireAuth, (req, res) => {
   req.session.destroy(() => { res.clearCookie("wa.sid"); res.json({ ok: true }); });
 });
-app.get("/api/me", (req, res) => res.json(req.session.userId ? { loggedIn: true, label: req.session.label || "Sarthak Jain Workspace" } : { loggedIn: false }));
+app.get("/api/me", (req, res) => res.json(req.session.userId ? { loggedIn: true, label: req.session.label || "Team Member" } : { loggedIn: false }));
 
 app.post("/api/whatsapp/connect", requireAuth, async (req, res) => {
   await connectWhatsApp(req.session.userId);
