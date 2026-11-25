@@ -12,6 +12,8 @@ import {
   normalizeContactName,
   normalizePhone,
   mapBaileysDeliveryStatus,
+  parseRetryMessage,
+  serializeRetryMessage,
   sanitizeContactVariables,
   summarizeBatch
 } from "../lib/campaign-utils.js";
@@ -135,3 +137,21 @@ test("prefers a trusted mapped LID and falls back to a verified phone JID", () =
 });
 
 test('maps Baileys ACK status including ERROR to explicit delivery states', () => { const cases = [[0,'error'],[1,null],[2,'server_ack'],[3,'delivered'],[4,'read'],[5,'read'],[undefined,null],['invalid',null]]; for (const [input, expected] of cases) assert.equal(mapBaileysDeliveryStatus(input), expected); });
+
+test("serializes and restores retry message binary fields", () => {
+  const original = {
+    conversation: "Hello from WA Sender",
+    imageMessage: {
+      mediaKey: Buffer.from([1, 2, 3, 4]),
+      fileSha256: new Uint8Array([5, 6, 7])
+    }
+  };
+  const serialized = serializeRetryMessage(original);
+  assert.equal(typeof serialized, "string");
+  const restored = parseRetryMessage(serialized);
+  assert.equal(restored.conversation, original.conversation);
+  assert.deepEqual(Buffer.from(restored.imageMessage.mediaKey), Buffer.from([1, 2, 3, 4]));
+  assert.deepEqual(Buffer.from(restored.imageMessage.fileSha256), Buffer.from([5, 6, 7]));
+  assert.equal(parseRetryMessage("invalid json"), undefined);
+  assert.equal(serializeRetryMessage(null), null);
+});
