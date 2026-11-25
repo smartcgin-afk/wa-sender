@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
-import { shouldRestoreWhatsAppSession } from "./lib/connection-utils.js";
+import { shouldRestoreWhatsAppSession, shouldStartFreshWhatsAppSession } from "./lib/connection-utils.js";
 import {
   applyMessageTemplate, extractContactVariables, findContactColumns,
   normalizeCampaignOptions, normalizeContactName, normalizePhone,
