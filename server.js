@@ -5,7 +5,7 @@ import multer from "multer";
 import { parse } from "csv-parse/sync";
 import QRCode from "qrcode";
 import pino from "pino";
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from "@whiskeysockets/baileys";
+import makeWASocket, { Browsers, useMultiFileAuthState, DisconnectReason } from "@whiskeysockets/baileys";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -333,7 +333,7 @@ async function connectWhatsApp(userId) {
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     const sock = makeWASocket({
       auth: state, logger, printQRInTerminal: false, syncFullHistory: true,
-      markOnlineOnConnect: false, browser: ["WA Sender", "Chrome", "1.0.0"],
+      markOnlineOnConnect: false, browser: Browsers.macOS("Desktop"),
       getMessage: async key => {
         if (!key?.id) return undefined;
         const row = db.prepare("SELECT message_json FROM campaign_item_messages WHERE message_id=? AND user_id=?")
