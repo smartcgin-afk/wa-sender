@@ -604,7 +604,7 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
 
           if (run.stopRequested && sentParts < expectedParts) {
             db.prepare("UPDATE campaign_items SET status=?,reason=?,updated_at=? WHERE id=? AND user_id=?")
-              .run(sentParts ? "stopped" : "stopped",
+              .run(sentParts ? "partial" : "stopped",
                 sentParts ? `Batch cancelled after ${sentParts} of ${expectedParts} message part(s) for this recipient.` : "Cancelled before sending.",
                 new Date().toISOString(), item.id, userId);
             if (sentParts > 0) accepted++;
