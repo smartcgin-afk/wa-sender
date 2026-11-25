@@ -25,6 +25,7 @@ jobs:
         run: |
           node --check server.js
           node --check lib/campaign-utils.js
+          node --check lib/connection-utils.js
           node --check tests/campaign-utils.test.js
       - name: Run unit tests
         run: npm test
