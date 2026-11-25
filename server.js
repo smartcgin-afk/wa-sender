@@ -140,6 +140,10 @@ function requireAuth(req, res, next) {
   next();
 }
 function userSessionDir(userId) { return path.join(SESSIONS_DIR, userId); }
+function maskJid(jid) {
+  const user = String(jid || "").split("@")[0].split(":")[0];
+  return user.length > 4 ? `…${user.slice(-4)}` : "unknown";
+}
 function normalizePhone(value) {
   let digits = String(value || "").replace(/\D/g, "");
   if (digits.length === 10) digits = "91" + digits;
@@ -175,7 +179,7 @@ async function connectWhatsApp(userId) {
         if (!key.fromMe) continue;
         console.log("[WA ACK]", {
           messageId: key.id || null,
-          recipientJid: key.remoteJid || null,
+          recipient: maskJid(key.remoteJid),
           status: entry?.update?.status ?? null,
           messageTimestamp: entry?.update?.messageTimestamp ?? null
         });
@@ -380,8 +384,7 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
             const sentMessage = await liveClient.sock.sendMessage(`${item.phone}@s.whatsapp.net`, { text: personalized });
             console.log("[WA SEND ACCEPTED]", {
               messageId: sentMessage?.key?.id || null,
-              recipientJid: sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`,
-              contact: item.phone
+              recipient: maskJid(sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`),
             });
             sentParts++;
           }
@@ -391,8 +394,7 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
             const sentMessage = await liveClient.sock.sendMessage(`${item.phone}@s.whatsapp.net`, payload);
             console.log("[WA SEND ACCEPTED]", {
               messageId: sentMessage?.key?.id || null,
-              recipientJid: sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`,
-              contact: item.phone,
+              recipient: maskJid(sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`),
               attachment: path.basename(file.originalname)
             });
             sentParts++;
