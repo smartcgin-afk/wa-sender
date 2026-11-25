@@ -1,0 +1,23 @@
+{
+  "name": "wa-bulk-sender",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A small opt-in WhatsApp campaign prototype with per-user QR sessions",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": { "node": ">=20.0.0" },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.18",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.7.0",
+    "csv-parse": "^5.6.0",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "multer": "^2.0.2",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4"
+  }
+}
