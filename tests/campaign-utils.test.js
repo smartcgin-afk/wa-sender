@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   applyMessageTemplate,
+  chooseRecipientJid,
+  extractPnLidPair,
+  normalizeLidJid,
+  normalizePnJid,
   extractContactVariables,
   findContactColumns,
   normalizeCampaignOptions,
@@ -80,4 +84,51 @@ test("summarizes per-recipient batch outcomes", () => {
     { status: "accepted" }, { status: "failed" }, { status: "pending" },
     { status: "stopped" }, { status: "sending" }, { status: "partial" }
   ]), { total: 6, sent: 1, failed: 1, pending: 1, cancelled: 1, sending: 1, partial: 1 });
+});
+
+
+test("normalizes phone-number and LID JIDs", () => {
+  assert.equal(normalizePnJid("919876543210:4@c.us"), "919876543210@s.whatsapp.net");
+  assert.equal(normalizePnJid("919876543210"), "919876543210@s.whatsapp.net");
+  assert.equal(normalizePnJid("person@lid"), null);
+  assert.equal(normalizeLidJid("123456789012345:2@lid"), "123456789012345@lid");
+  assert.equal(normalizeLidJid("123456789012345"), "123456789012345@lid");
+  assert.equal(normalizeLidJid("919876543210@s.whatsapp.net"), null);
+});
+
+test("extracts PN/LID pairs from alternate message addressing", () => {
+  assert.deepEqual(
+    extractPnLidPair("123456789012345@lid", "919876543210@s.whatsapp.net"),
+    { lid: "123456789012345@lid", pn: "919876543210@s.whatsapp.net" }
+  );
+  assert.deepEqual(
+    extractPnLidPair("919876543210@s.whatsapp.net", "123456789012345@lid"),
+    { lid: "123456789012345@lid", pn: "919876543210@s.whatsapp.net" }
+  );
+  assert.equal(extractPnLidPair("123456789@g.us", "919876543210@s.whatsapp.net"), null);
+});
+
+test("prefers a trusted mapped LID and falls back to a verified phone JID", () => {
+  assert.deepEqual(
+    chooseRecipientJid({
+      phoneJid: "919876543210@s.whatsapp.net",
+      verifiedJid: "919876543210@s.whatsapp.net",
+      mappedLid: "123456789012345@lid"
+    }),
+    { jid: "123456789012345@lid", mode: "lid" }
+  );
+  assert.deepEqual(
+    chooseRecipientJid({
+      phoneJid: "919876543210@s.whatsapp.net",
+      verifiedJid: "919876543210@s.whatsapp.net"
+    }),
+    { jid: "919876543210@s.whatsapp.net", mode: "phone" }
+  );
+  assert.deepEqual(
+    chooseRecipientJid({
+      phoneJid: "919876543210@s.whatsapp.net",
+      storedLid: "123456789012345"
+    }),
+    { jid: "123456789012345@lid", mode: "lid" }
+  );
 });
