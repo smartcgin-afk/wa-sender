@@ -10,13 +10,39 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
+import bcrypt from "bcryptjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const ACCESS_CODE = process.env.ACCESS_CODE || "";
-const TEAM_MEMBERS = JSON.parse(process.env.TEAM_MEMBERS || "[]");
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+let TEAM_MEMBERS;
+try {
+  TEAM_MEMBERS = JSON.parse(process.env.TEAM_MEMBERS || "[]");
+} catch {
+  throw new Error("TEAM_MEMBERS must be valid JSON. See README.md for the .env format.");
+}
+const SESSION_SECRET = process.env.SESSION_SECRET || "";
+if (SESSION_SECRET.length < 32 || /replace|change.?me|example/i.test(SESSION_SECRET)) {
+  throw new Error("Set a stable SESSION_SECRET (at least 32 characters) in .env. Do not generate a new one on each start.");
+}
+if (!ACCESS_CODE || /replace|change.?me|example/i.test(ACCESS_CODE)) {
+  throw new Error("Set a private ACCESS_CODE in .env before starting the app.");
+}
+if (!Array.isArray(TEAM_MEMBERS) || TEAM_MEMBERS.length === 0) {
+  throw new Error("TEAM_MEMBERS must contain at least one member. See README.md.");
+}
+const memberNames = new Set();
+for (const member of TEAM_MEMBERS) {
+  const normalizedName = String(member?.name || "").trim().toLowerCase();
+  if (!normalizedName || memberNames.has(normalizedName)) {
+    throw new Error("TEAM_MEMBERS must contain unique, non-empty member names.");
+  }
+  if (!member.pin_bcrypt && !/^[a-f0-9]{64}$/i.test(String(member.pin_sha256 || ""))) {
+    throw new Error(`Member "${member.name}" needs a pin_bcrypt hash. See README.md.`);
+  }
+  memberNames.add(normalizedName);
+}
 const DATA_DIR = path.join(__dirname, "data");
 const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
@@ -55,6 +81,7 @@ db.prepare("UPDATE campaign_items SET status='stopped', reason='Server restarted
 db.prepare("UPDATE campaigns SET status='interrupted', completed_at=? WHERE status='running'").run(new Date().toISOString());
 
 app.disable("x-powered-by");
+app.set("trust proxy", 1);
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
@@ -66,7 +93,7 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: false, limit: "16kb" }));
 app.use(session({
   name: "wa.sid", secret: SESSION_SECRET, resave: false, saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", maxAge: 1000 * 60 * 60 * 12 }
+  cookie: { httpOnly: true, sameSite: "lax", secure: "auto", maxAge: 1000 * 60 * 60 * 12 }
 }));
 app.use(express.static(path.join(__dirname, "public"), { dotfiles: "deny", etag: true, maxAge: "1h" }));
 
@@ -190,11 +217,11 @@ async function connectWhatsApp(userId) {
 
 // Restore session directories belonging to workspaces that were previously connected.
 for (const member of TEAM_MEMBERS) {
-  const id = crypto.createHmac("sha256", SESSION_SECRET).update(String(member.name).toLowerCase()).digest("hex");
+  const id = crypto.createHmac("sha256", SESSION_SECRET).update(String(member.name).trim().toLowerCase()).digest("hex");
   if (fs.existsSync(userSessionDir(id))) connectWhatsApp(id).catch(() => {});
 }
 
-app.post("/api/unlock", (req, res) => {
+app.post("/api/unlock", async (req, res) => {
   if (!ACCESS_CODE || TEAM_MEMBERS.length === 0) return res.status(503).json({ error: "Admin setup is incomplete. Configure ACCESS_CODE and TEAM_MEMBERS in .env." });
   const ip = req.ip || req.socket.remoteAddress || "unknown";
   const now = Date.now();
@@ -203,9 +230,16 @@ app.post("/api/unlock", (req, res) => {
   const memberName = String(req.body.member || "").trim().slice(0, 60);
   const pin = String(req.body.pin || "");
   const member = TEAM_MEMBERS.find(m => String(m.name || "").toLowerCase() === memberName.toLowerCase());
-  const pinHash = crypto.createHash("sha256").update(pin).digest("hex");
-  const storedHash = String(member?.pin_sha256 || "");
-  const pinValid = !!member && storedHash.length === 64 && crypto.timingSafeEqual(Buffer.from(pinHash), Buffer.from(storedHash));
+  let pinValid = false;
+  if (member?.pin_bcrypt) {
+    try { pinValid = await bcrypt.compare(pin, String(member.pin_bcrypt)); } catch { pinValid = false; }
+  } else if (member?.pin_sha256) {
+    // Backward compatibility for existing V4 hashes; migrate these to bcrypt when convenient.
+    const pinHash = crypto.createHash("sha256").update(pin).digest("hex");
+    const storedHash = String(member.pin_sha256);
+    pinValid = /^[a-f0-9]{64}$/i.test(storedHash) &&
+      crypto.timingSafeEqual(Buffer.from(pinHash, "hex"), Buffer.from(storedHash, "hex"));
+  }
   const submitted = Buffer.from(String(req.body.code || ""));
   const expected = Buffer.from(ACCESS_CODE);
   const codeValid = !!ACCESS_CODE && submitted.length === expected.length && crypto.timingSafeEqual(submitted, expected);
@@ -215,7 +249,7 @@ app.post("/api/unlock", (req, res) => {
     return res.status(401).json({ error: "Incorrect access code. Please try again." });
   }
   unlockAttempts.delete(ip);
-  req.session.userId = crypto.createHmac("sha256", SESSION_SECRET).update(member.name.toLowerCase()).digest("hex");
+  req.session.userId = crypto.createHmac("sha256", SESSION_SECRET).update(member.name.trim().toLowerCase()).digest("hex");
   req.session.label = member.name;
   req.session.save(err => {
     if (err) return res.status(500).json({ error: "Could not create workspace session." });
