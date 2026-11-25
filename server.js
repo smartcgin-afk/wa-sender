@@ -13,7 +13,7 @@ import crypto from "node:crypto";
 import {
   applyMessageTemplate, extractContactVariables, findContactColumns,
   normalizeCampaignOptions, normalizeContactName, normalizePhone,
-  sanitizeContactVariables, summarizeBatch, extractPnLidPair, normalizeLidJid, normalizePnJid, chooseRecipientJid, mapBaileysDeliveryStatus, serializeRetryMessage, parseRetryMessage
+  sanitizeContactVariables, summarizeBatch, summarizeDeliveryReceipts, recipientDisplayLabel, extractPnLidPair, normalizeLidJid, normalizePnJid, chooseRecipientJid, mapBaileysDeliveryStatus, serializeRetryMessage, parseRetryMessage
 } from "./lib/campaign-utils.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -190,16 +190,21 @@ async function storeContactJidMapping(sock, userId, pair) {
   try { await sock.signalRepository?.lidMapping?.storeLIDPNMappings?.([normalized]); }
   catch (error) { console.warn("[WA LID MAP]", error?.message || error); }
 }
-function saveContactMetadata(userId, contact, fallbackName = "") {
+function saveContactMetadata(userId, contact, fallbackName = "", sock = null) {
   const pairs = [
     extractPnLidPair(contact?.id, contact?.lid),
     extractPnLidPair(contact?.id, contact?.phoneNumber),
     extractPnLidPair(contact?.jid, contact?.lid),
     extractPnLidPair(contact?.phoneNumber, contact?.lid)
   ].filter(Boolean);
-  for (const pair of pairs) persistContactJidMapping(userId, pair);
-  const name = [contact?.name, contact?.verifiedName, contact?.notify, contact?.pushName, fallbackName]
-    .map(normalizeContactName).find(Boolean);
+  for (const pair of pairs) {
+    if (sock) storeContactJidMapping(sock, userId, pair).catch(error => console.warn("[WA CONTACT LID MAP]", error?.message || error));
+    else persistContactJidMapping(userId, pair);
+  }
+  const savedName = normalizeContactName(contact?.name);
+  const verifiedName = normalizeContactName(contact?.verifiedName);
+  const pushName = normalizeContactName(contact?.notify || contact?.pushName || fallbackName);
+  const name = savedName || verifiedName || pushName;
   if (!name) return;
   const ids = [contact?.phoneNumber, contact?.jid, contact?.id, contact?.lid]
     .map(value => String(value || "").trim()).filter(Boolean);
@@ -209,7 +214,7 @@ function saveContactMetadata(userId, contact, fallbackName = "") {
   if (!phone) return;
   const lid = ids.find(value => value.endsWith("@lid")) || null;
   const jid = pnJid || (phone + "@s.whatsapp.net");
-  const source = contact?.name ? "saved_contact" : contact?.verifiedName ? "verified_name" : "push_name";
+  const source = savedName ? "saved_contact" : verifiedName ? "verified_name" : "push_name";
   db.prepare("INSERT INTO contacts (user_id,phone,name,jid,lid,source,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,phone) DO UPDATE SET name=CASE WHEN excluded.source='saved_contact' OR contacts.source!='saved_contact' THEN excluded.name ELSE contacts.name END,jid=COALESCE(excluded.jid,contacts.jid),lid=COALESCE(excluded.lid,contacts.lid),source=CASE WHEN excluded.source='saved_contact' OR contacts.source!='saved_contact' THEN excluded.source ELSE contacts.source END,updated_at=excluded.updated_at")
     .run(userId, phone, name, jid, lid, source, new Date().toISOString());
 }
@@ -236,8 +241,15 @@ async function resolveRecipientJid(sock, phone, userId) {
     }
   }
 
-  const chosen = chooseRecipientJid({ phoneJid: pnJid, verifiedJid: match.jid || pnJid, mappedLid: mappedLid || match.lid });
-  return { ...chosen, mode: chosen.mode === "lid" ? "lid_cached" : "phone" };
+  const verifiedJid = normalizeLidJid(match.jid) || normalizePnJid(match.jid) || pnJid;
+  const observedPair = extractPnLidPair(pnJid, verifiedJid) || (match.lid ? extractPnLidPair(pnJid, match.lid) : null);
+  if (observedPair) await storeContactJidMapping(sock, userId, observedPair);
+  if (!mappedLid && storedLid) {
+    const restoredPair = extractPnLidPair(pnJid, storedLid);
+    if (restoredPair) await storeContactJidMapping(sock, userId, restoredPair);
+  }
+  const chosen = chooseRecipientJid({ phoneJid: pnJid, verifiedJid, mappedLid: mappedLid || match.lid });
+  return { ...chosen, mode: chosen.mode === "lid" ? (mappedLid ? "lid_live" : "lid_mapped") : "phone" };
 }
 function getClient(userId) { return waClients.get(userId) || null; }
 function cleanFiles(files = []) { for (const f of files) { try { fs.unlinkSync(f.path); } catch {} } }
@@ -253,27 +265,36 @@ function clientStatus(userId) {
     accountPhone: accountPhone && /^\d+$/.test(accountPhone) ? accountPhone : null
   };
 }
+const deliveryRank = { accepted: 0, server_ack: 1, error: 2, delivered: 3, read: 4 };
+function mergeDeliveryStatus(current, incoming) {
+  return (deliveryRank[incoming] ?? -1) > (deliveryRank[current] ?? -1) ? incoming : current;
+}
+function rememberEarlyDeliveryAck(messageId, delivery, updatedAt, errorDetails) {
+  const previous = earlyDeliveryAcks.get(messageId);
+  const merged = previous ? mergeDeliveryStatus(previous.delivery, delivery) : delivery;
+  const selectedDetails = merged === "error" ? (errorDetails || previous?.errorDetails || null) : null;
+  earlyDeliveryAcks.set(messageId, { delivery: merged, updatedAt, errorDetails: selectedDetails });
+  if (earlyDeliveryAcks.size > 5000) earlyDeliveryAcks.delete(earlyDeliveryAcks.keys().next().value);
+}
+function recomputeCampaignItemDelivery(itemId, errorDetails = null) {
+  const statuses = db.prepare("SELECT status FROM campaign_item_messages WHERE item_id=?").all(itemId).map(row => row.status);
+  const delivery = summarizeDeliveryReceipts(statuses);
+  const reason = delivery === "error"
+    ? "WhatsApp rejected at least one message part: " + String(errorDetails || "server error ACK").slice(0, 150)
+    : null;
+  db.prepare("UPDATE campaign_items SET delivery_status=?,reason=CASE WHEN ?='error' THEN ? ELSE reason END WHERE id=?")
+    .run(delivery, delivery, reason, itemId);
+}
 function applyCampaignDelivery(messageId, delivery, updatedAt = new Date().toISOString(), errorDetails = null) {
-  const result = db.prepare("UPDATE campaign_item_messages SET status=?,updated_at=? WHERE message_id=?")
-    .run(delivery, updatedAt, messageId);
-  if (!result.changes) {
-    earlyDeliveryAcks.set(messageId, { delivery, updatedAt, errorDetails });
-    if (earlyDeliveryAcks.size > 5000) earlyDeliveryAcks.delete(earlyDeliveryAcks.keys().next().value);
+  const existing = db.prepare("SELECT item_id,status FROM campaign_item_messages WHERE message_id=?").get(messageId);
+  if (!existing) {
+    rememberEarlyDeliveryAck(messageId, delivery, updatedAt, errorDetails);
     return;
   }
-  const linked = db.prepare("SELECT item_id FROM campaign_item_messages WHERE message_id=?").get(messageId);
-  if (!linked) return;
-  if (delivery === "server_ack") {
-    db.prepare("UPDATE campaign_items SET delivery_status='server_ack' WHERE id=? AND delivery_status NOT IN ('delivered','read')")
-      .run(linked.item_id);
-  } else if (delivery === "delivered" || delivery === "read") {
-    db.prepare("UPDATE campaign_items SET delivery_status=CASE WHEN ?='read' THEN 'read' WHEN delivery_status='read' THEN 'read' ELSE 'delivered' END WHERE id=?")
-      .run(delivery, linked.item_id);
-  } else if (delivery === "error") {
-    const detail = String(errorDetails || "WhatsApp returned an error for this message.").slice(0, 180);
-    db.prepare("UPDATE campaign_items SET delivery_status='error',reason=? WHERE id=? AND delivery_status NOT IN ('delivered','read')")
-      .run(`WhatsApp rejected the message: ${detail}`, linked.item_id);
-  }
+  const next = mergeDeliveryStatus(existing.status, delivery);
+  db.prepare("UPDATE campaign_item_messages SET status=?,updated_at=? WHERE message_id=?")
+    .run(next, updatedAt, messageId);
+  recomputeCampaignItemDelivery(existing.item_id, errorDetails);
 }
 function recordOutboundMessage(message, campaignId, itemId, userId) {
   const messageId = message?.key?.id;
@@ -281,6 +302,7 @@ function recordOutboundMessage(message, campaignId, itemId, userId) {
   const messageJson = serializeRetryMessage(message?.message);
   db.prepare("INSERT INTO campaign_item_messages (message_id,campaign_id,item_id,user_id,status,updated_at,message_json) VALUES (?,?,?,?,?,?,?) ON CONFLICT(message_id) DO UPDATE SET message_json=COALESCE(excluded.message_json,campaign_item_messages.message_json),updated_at=excluded.updated_at")
     .run(messageId, campaignId, itemId, userId, "accepted", new Date().toISOString(), messageJson);
+  recomputeCampaignItemDelivery(itemId);
   const pending = earlyDeliveryAcks.get(messageId);
   if (pending) {
     earlyDeliveryAcks.delete(messageId);
@@ -299,7 +321,7 @@ async function connectWhatsApp(userId) {
   try {
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
     const sock = makeWASocket({
-      auth: state, logger, printQRInTerminal: false, syncFullHistory: false,
+      auth: state, logger, printQRInTerminal: false, syncFullHistory: true,
       markOnlineOnConnect: false, browser: ["WA Sender", "Chrome", "1.0.0"],
       getMessage: async key => {
         if (!key?.id) return undefined;
@@ -314,21 +336,28 @@ async function connectWhatsApp(userId) {
     sock.ev.on("creds.update", saveCreds);
     // Cache contact names when WhatsApp actually supplies them. Unsaved contacts may have no name until they reply.
     sock.ev.on("contacts.upsert", contacts => {
-      for (const contact of contacts || []) saveContactMetadata(userId, contact);
+      for (const contact of contacts || []) saveContactMetadata(userId, contact, "", sock);
     });
     sock.ev.on("contacts.update", contacts => {
-      for (const contact of contacts || []) saveContactMetadata(userId, contact);
+      for (const contact of contacts || []) saveContactMetadata(userId, contact, "", sock);
     });
     sock.ev.on("lid-mapping.update", mapping => {
       const pair = extractPnLidPair(mapping?.lid, mapping?.pn);
-      if (pair) persistContactJidMapping(userId, pair);
+      if (pair) storeContactJidMapping(sock, userId, pair).catch(error => console.warn("[WA LID MAP]", error?.message || error));
     });
     sock.ev.on("messaging-history.set", history => {
-      for (const contact of history?.contacts || []) saveContactMetadata(userId, contact);
+      for (const contact of history?.contacts || []) saveContactMetadata(userId, contact, "", sock);
       for (const mapping of history?.lidPnMappings || []) {
         const pair = extractPnLidPair(mapping?.lid, mapping?.pn);
-        if (pair) persistContactJidMapping(userId, pair);
+        if (pair) storeContactJidMapping(sock, userId, pair).catch(error => console.warn("[WA HISTORY LID MAP]", error?.message || error));
       }
+      console.log("[WA HISTORY SYNC]", {
+        contacts: history?.contacts?.length || 0,
+        lidMappings: history?.lidPnMappings?.length || 0,
+        messages: history?.messages?.length || 0,
+        progress: history?.progress ?? null,
+        isLatest: history?.isLatest ?? null
+      });
     });
     sock.ev.on("messages.upsert", event => {
       for (const message of event?.messages || []) {
@@ -336,22 +365,48 @@ async function connectWhatsApp(userId) {
         for (const pair of [
           extractPnLidPair(key.remoteJid, key.remoteJidAlt),
           extractPnLidPair(key.participant, key.participantAlt)
-        ].filter(Boolean)) persistContactJidMapping(userId, pair);
+        ].filter(Boolean)) storeContactJidMapping(sock, userId, pair).catch(error => console.warn("[WA MESSAGE LID MAP]", error?.message || error));
         if (key.fromMe || !message?.pushName) continue;
         const candidate = key.senderPn || key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid || "";
-        if (String(candidate).endsWith("@s.whatsapp.net")) saveContactMetadata(userId, { id: candidate, notify: message.pushName });
+        if (String(candidate).endsWith("@s.whatsapp.net")) saveContactMetadata(userId, { id: candidate, notify: message.pushName }, "", sock);
       }
     });
+    // Match by our persisted outbound message ID. Under LID/PN addressing aliases,
+    // the receipt's fromMe flag is not a reliable ownership check for our own send.
     sock.ev.on("messages.update", updates => {
       for (const entry of updates || []) {
         const key = entry?.key || {};
-        if (!key.fromMe || !key.id) continue;
+        if (!key.id) continue;
         const raw = entry?.update?.status;
         const status = raw == null ? null : Number(raw);
         const delivery = mapBaileysDeliveryStatus(status);
+        if (!delivery) continue;
+        const tracked = db.prepare("SELECT 1 FROM campaign_item_messages WHERE message_id=? AND user_id=?")
+          .get(key.id, userId);
+        if (!tracked && !campaignRuns.has(userId)) continue;
         const detail = entry?.update?.messageStubParameters;
-        if (delivery) applyCampaignDelivery(key.id, delivery, new Date().toISOString(), Array.isArray(detail) ? detail.join(" ") : detail);
-        if (delivery === "error") console.warn("[WA MESSAGE REJECTED]", { id: key.id, recipient: maskJid(key.remoteJid), status, detail });
+        const errorDetails = Array.isArray(detail) ? detail.join(" ") : detail;
+        applyCampaignDelivery(key.id, delivery, new Date().toISOString(), errorDetails);
+        console.log("[WA RECEIPT]", {
+          id: key.id,
+          fromMe: key.fromMe === true,
+          tracked: Boolean(tracked),
+          recipient: maskJid(key.remoteJid),
+          status,
+          delivery
+        });
+      }
+    });
+    sock.ev.on("message-receipt.update", updates => {
+      for (const entry of updates || []) {
+        const key = entry?.key || {};
+        if (!key.id) continue;
+        const tracked = db.prepare("SELECT 1 FROM campaign_item_messages WHERE message_id=? AND user_id=?")
+          .get(key.id, userId);
+        if (!tracked) continue;
+        const receipt = entry?.receipt || {};
+        const delivery = receipt.readTimestamp ? "read" : receipt.receiptTimestamp ? "delivered" : null;
+        if (delivery) applyCampaignDelivery(key.id, delivery, new Date().toISOString());
       }
     });
     sock.ev.on("connection.update", async update => {
@@ -749,7 +804,9 @@ app.get("/api/campaigns", requireAuth, (req, res) => {
 app.get("/api/campaigns/:id", requireAuth, (req, res) => {
   const campaign = db.prepare("SELECT * FROM campaigns WHERE id=? AND user_id=?").get(req.params.id, req.session.userId);
   if (!campaign) return res.status(404).json({ error: "Campaign not found." });
-  const items = db.prepare("SELECT name,phone,status,delivery_status,reason,updated_at FROM campaign_items WHERE campaign_id=? AND user_id=? ORDER BY id").all(req.params.id, req.session.userId);
+  const items = db.prepare("SELECT name,phone,status,delivery_status,reason,updated_at FROM campaign_items WHERE campaign_id=? AND user_id=? ORDER BY id")
+    .all(req.params.id, req.session.userId)
+    .map(item => ({ ...item, display_name: recipientDisplayLabel(item.name, item.phone) }));
   const progress = summarizeBatch(items);
   const run = campaignRuns.get(req.session.userId);
   const status = campaign.status === "running" ? "processing"
@@ -770,7 +827,9 @@ app.get("/api/campaigns/:id", requireAuth, (req, res) => {
 app.get("/api/campaigns/:id/export.csv", requireAuth, (req, res) => {
   const campaign = db.prepare("SELECT id FROM campaigns WHERE id=? AND user_id=?").get(req.params.id, req.session.userId);
   if (!campaign) return res.status(404).send("Not found");
-  const items = db.prepare("SELECT name,phone,status,delivery_status,reason,updated_at FROM campaign_items WHERE campaign_id=? AND user_id=? ORDER BY id").all(req.params.id, req.session.userId);
+  const items = db.prepare("SELECT name,phone,status,delivery_status,reason,updated_at FROM campaign_items WHERE campaign_id=? AND user_id=? ORDER BY id")
+    .all(req.params.id, req.session.userId)
+    .map(item => ({ ...item, name: recipientDisplayLabel(item.name, item.phone) }));
   const quote = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const csv = ["Name,Mobile,Send Status,Delivery,Reason,Updated At", ...items.map(i => [i.name, i.phone, i.status, i.delivery_status, i.reason, i.updated_at].map(quote).join(","))].join("\n");
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
