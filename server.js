@@ -168,6 +168,19 @@ async function connectWhatsApp(userId) {
     if (!current || current.generation !== generation || current.manualDisconnect) { try { sock.end(undefined); } catch {} return; }
     waClients.set(userId, { ...current, sock, connecting: false });
     sock.ev.on("creds.update", saveCreds);
+    // Diagnostic only: WhatsApp delivery/ack state arrives asynchronously after sendMessage resolves.
+    sock.ev.on("messages.update", updates => {
+      for (const entry of updates || []) {
+        const key = entry?.key || {};
+        if (!key.fromMe) continue;
+        console.log("[WA ACK]", {
+          messageId: key.id || null,
+          recipientJid: key.remoteJid || null,
+          status: entry?.update?.status ?? null,
+          messageTimestamp: entry?.update?.messageTimestamp ?? null
+        });
+      }
+    });
     sock.ev.on("connection.update", async update => {
       const latest = getClient(userId);
       if (!latest || latest.generation !== generation || latest.manualDisconnect) return;
@@ -364,13 +377,24 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
         let sentParts = 0, errors = [];
         try {
           if (personalized) {
-            await liveClient.sock.sendMessage(`${item.phone}@s.whatsapp.net`, { text: personalized });
+            const sentMessage = await liveClient.sock.sendMessage(`${item.phone}@s.whatsapp.net`, { text: personalized });
+            console.log("[WA SEND ACCEPTED]", {
+              messageId: sentMessage?.key?.id || null,
+              recipientJid: sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`,
+              contact: item.phone
+            });
             sentParts++;
           }
           for (const file of files) {
             if (run.stopRequested) break;
             const payload = attachmentPayload(file);
-            await liveClient.sock.sendMessage(`${item.phone}@s.whatsapp.net`, payload);
+            const sentMessage = await liveClient.sock.sendMessage(`${item.phone}@s.whatsapp.net`, payload);
+            console.log("[WA SEND ACCEPTED]", {
+              messageId: sentMessage?.key?.id || null,
+              recipientJid: sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`,
+              contact: item.phone,
+              attachment: path.basename(file.originalname)
+            });
             sentParts++;
           }
           const expectedParts = (personalized ? 1 : 0) + files.length;
