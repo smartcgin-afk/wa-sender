@@ -6,13 +6,239 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    :root{--paper:#f5f3ec;--white:#fffefa;--ink:#17231d;--muted:#78827b;--line:#e7e6dd;--green:#087b53;--green-dark:#075f41;--green-pale:#e8f3eb;--red:#c64b43;--red-pale:#fff0ed;--gold:#b38a48;--shadow:0 18px 55px rgba(34,46,36,.055)}
-    *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:'DM Sans',sans-serif}button,input,textarea{font:inherit}button{cursor:pointer;border:0}
-    .shell{max-width:1180px;margin:0 auto;padding:28px 24px 54px}.brandbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}.brand{display:flex;align-items:center;gap:13px}.brandmark{width:44px;height:44px;border-radius:14px;background:var(--green);color:white;display:grid;place-items:center;font:800 15px Manrope;letter-spacing:-1px;box-shadow:0 7px 18px #087b5328}.brandname{font:800 18px Manrope;letter-spacing:-.6px}.brandmeta{font-size:11px;color:var(--muted);margin-top:3px;letter-spacing:.3px}.signature{font-size:11px;color:#7d877f;letter-spacing:.14em;text-transform:uppercase}.signature b{color:var(--green);font-weight:700}
-    .hero{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin:0 0 22px}.eyebrow{font-size:10px;font-weight:700;letter-spacing:.19em;text-transform:uppercase;color:var(--green);margin-bottom:9px}.hero h1{font:800 clamp(27px,4vw,38px)/1.12 Manrope;letter-spacing:-1.5px;margin:0}.hero p{margin:9px 0 0;color:var(--muted);font-size:13px}.chip{display:inline-flex;align-items:center;gap:8px;background:#fffefa;border:1px solid var(--line);padding:9px 13px;border-radius:99px;color:#5e6a61;font-size:11px;white-space:nowrap}.dot{width:7px;height:7px;border-radius:50%;background:#c3c9c3}.dot.on{background:#159b68;box-shadow:0 0 0 4px #159b681c}
-    .layout{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{background:var(--white);border:1px solid var(--line);border-radius:19px;padding:22px;box-shadow:var(--shadow)}.card.full{grid-column:1/-1}.cardhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:17px}.step{font:700 15px Manrope;letter-spacing:-.3px}.step small{color:#9aa39b;font:600 10px 'DM Sans';letter-spacing:.12em;margin-right:8px}.field{margin:13px 0}.field label{display:block;font-size:11px;font-weight:700;color:#45534a;margin-bottom:8px}.input,textarea{width:100%;border:1px solid #e5e5dc;background:#fff;border-radius:11px;padding:12px 13px;color:var(--ink);outline:none;transition:.18s}.input:focus,textarea:focus{border-color:#85b99d;box-shadow:0 0 0 3px #087b5310}textarea{min-height:112px;resize:vertical;line-height:1.55}.fileinput{padding:10px;background:#fff;border:1px dashed #d7ded5;border-radius:11px;width:100%;font-size:12px;color:#6f7a72}.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 15px;border-radius:10px;font-size:12px;font-weight:700;transition:.18s}.btn.primary{background:var(--green);color:white}.btn.primary:hover{background:var(--green-dark);transform:translateY(-1px)}.btn.soft{background:#edf2ed;color:#3e5948}.btn.soft:hover{background:#e2ebe3}.btn.danger{background:var(--red-pale);color:var(--red)}.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}.btnrow{display:flex;gap:9px;flex-wrap:wrap}.qrbox{min-height:190px;border:1px dashed #d7dfd6;background:#fbfcf8;border-radius:14px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:9px;padding:15px;text-align:center}.qrbox img{width:174px;height:174px;object-fit:contain}.qrtitle{font-weight:700;color:var(--green);font-size:14px}.muted{color:var(--muted);font-size:11px;line-height:1.5}.statuspill{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border-radius:99px;background:#f0f1ec;color:#6d776f;font-size:10px;font-weight:700}.statuspill.ok{background:var(--green-pale);color:var(--green)}.notice{background:#f3f5f0;border-radius:10px;padding:11px 12px;color:#69766d;font-size:11px;line-height:1.5;margin-top:12px}.notice.error{background:var(--red-pale);color:var(--red)}.notice.success{background:var(--green-pale);color:var(--green)}.hidden{display:none!important}.countline{display:flex;justify-content:space-between;align-items:center;margin-top:12px}.count{font:800 25px Manrope;color:var(--green)}.hint{font-size:10px;color:var(--muted)}.consent{display:flex;align-items:flex-start;gap:9px;color:#69746c;font-size:11px;line-height:1.5;margin:14px 0}.consent input{accent-color:var(--green);margin-top:2px}.stats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin:2px 0 17px}.stat{background:#f7f7f1;border:1px solid #efeee6;border-radius:13px;padding:14px}.stat strong{display:block;font:800 26px Manrope;letter-spacing:-1px}.stat span{display:block;font-size:10px;color:var(--muted);margin-top:3px}.stat.green strong{color:var(--green)}.stat.red strong{color:var(--red)}.tablewrap{overflow:auto;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;font-size:11px;min-width:570px}th,td{text-align:left;padding:12px 13px;border-bottom:1px solid #eeeee7;vertical-align:top}th{background:#f8f8f3;color:#7b867d;font-size:9px;text-transform:uppercase;letter-spacing:.12em}tr:last-child td{border-bottom:0}.status{font-weight:700;text-transform:capitalize}.accepted{color:var(--green)}.failed{color:var(--red)}.pending{color:#a77b2e}.stopped{color:#7b6a9c}.partial{color:#b17b28}.sending{color:#4774a7}.progressline{display:flex;align-items:center;gap:12px;margin:0 0 15px}.progressbar{height:7px;flex:1;background:#eceee7;border-radius:99px;overflow:hidden}.progressbar span{display:block;height:100%;width:0;background:var(--green);border-radius:99px;transition:width .25s}.progressline small{font-size:10px;color:var(--muted);min-width:72px;text-align:right}.authscreen{min-height:100vh;display:grid;place-items:center;padding:22px}.authcard{width:min(430px,100%);background:var(--white);border:1px solid var(--line);border-radius:24px;padding:32px;box-shadow:0 24px 80px #26382c12}.authcard .brand{margin-bottom:30px}.authcard h1{font:800 28px Manrope;letter-spacing:-1px;margin:0}.authcard p{font-size:12px;color:var(--muted);line-height:1.6;margin:9px 0 22px}.authcard .btn{width:100%;margin-top:6px}.authfoot{text-align:center;font-size:10px;color:#9aa39b;margin-top:18px}.error{font-size:11px;color:var(--red);min-height:16px;margin-top:8px}.footnote{text-align:center;color:#9aa39b;font-size:10px;margin-top:18px;letter-spacing:.02em}
-    @media(max-width:760px){.shell{padding:18px 14px 38px}.layout{grid-template-columns:1fr}.card.full{grid-column:auto}.hero{align-items:flex-start;flex-direction:column}.signature{display:none}.card{padding:18px}.stats{grid-template-columns:1fr 1fr}.brandname{font-size:16px}}
-  td.delivery{font-weight:650;white-space:nowrap}td.delivery.server_ack{color:#64748b}td.delivery.delivered{color:#334155}td.delivery.read{color:#2563eb}td.delivery.error{color:#dc2626}td.delivery.not_confirmed{color:#64748b}
+  :root {
+    color-scheme: light;
+    --canvas: #eef1e9;
+    --canvas-deep: #e5ebe2;
+    --glass: rgba(255, 255, 251, .70);
+    --glass-strong: rgba(255, 255, 253, .88);
+    --ink: #17251f;
+    --ink-soft: #35463d;
+    --muted: #738078;
+    --line: rgba(125, 145, 132, .20);
+    --emerald: #087b58;
+    --emerald-deep: #075d43;
+    --emerald-wash: rgba(8, 123, 88, .09);
+    --red: #bd5149;
+    --red-wash: rgba(189, 81, 73, .10);
+    --gold: #a98548;
+    --shadow: 0 24px 65px rgba(37, 57, 44, .085);
+    --shadow-soft: 0 12px 35px rgba(37, 57, 44, .055);
+    --radius-xl: 25px;
+    --radius-lg: 18px;
+    --radius-md: 13px;
+  }
+
+  * { box-sizing: border-box; }
+  html { min-width: 320px; scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--ink);
+    font-family: "DM Sans", sans-serif;
+    background:
+      radial-gradient(ellipse at 12% 8%, rgba(191, 215, 192, .58), transparent 34%),
+      radial-gradient(ellipse at 88% 16%, rgba(215, 207, 178, .43), transparent 31%),
+      linear-gradient(135deg, #f3f2e9 0%, var(--canvas) 48%, #e8eee6 100%);
+    background-attachment: fixed;
+  }
+  body::before, body::after {
+    content: "";
+    position: fixed;
+    z-index: -1;
+    width: 340px;
+    height: 340px;
+    border-radius: 50%;
+    filter: blur(75px);
+    opacity: .30;
+    pointer-events: none;
+  }
+  body::before { left: -190px; top: 34%; background: #94c7aa; }
+  body::after { right: -190px; bottom: 2%; background: #d8c99b; }
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; border: 0; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline: 3px solid rgba(8, 123, 88, .22);
+    outline-offset: 2px;
+  }
+
+  .shell { width: min(1220px, 100%); margin: 0 auto; padding: 30px 28px 54px; }
+  .brandbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 35px; }
+  .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
+  .brandmark {
+    display: grid; place-items: center; flex: 0 0 48px; width: 48px; height: 48px;
+    border: 1px solid rgba(255,255,255,.56); border-radius: 16px;
+    color: #fff; font: 800 15px Manrope, sans-serif; letter-spacing: -1px;
+    background: linear-gradient(145deg, #14966a, #075a43);
+    box-shadow: 0 10px 24px rgba(8,123,88,.22), inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .brandname { font: 800 18px Manrope, sans-serif; letter-spacing: -.65px; }
+  .brandmeta { margin-top: 4px; color: var(--muted); font-size: 11px; letter-spacing: .035em; }
+  .signature { color: var(--muted); font-size: 11px; letter-spacing: .035em; }
+  .signature b { color: var(--emerald); font-weight: 800; }
+
+  .hero {
+    display: flex; justify-content: space-between; align-items: flex-end; gap: 24px;
+    margin: 0 0 24px; padding: 4px 2px 3px;
+  }
+  .eyebrow { margin-bottom: 10px; color: var(--emerald); font-size: 10px; font-weight: 800; letter-spacing: .19em; text-transform: uppercase; }
+  .hero h1 { margin: 0; font: 800 clamp(29px, 4vw, 42px)/1.12 Manrope, sans-serif; letter-spacing: -1.7px; }
+  .hero p { max-width: 620px; margin: 11px 0 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 9px; flex: 0 0 auto;
+    padding: 10px 15px; border: 1px solid rgba(255,255,255,.85); border-radius: 99px;
+    color: var(--ink-soft); background: rgba(255,255,255,.58);
+    box-shadow: 0 7px 20px rgba(35,55,43,.045); backdrop-filter: blur(16px);
+    font-size: 11px; font-weight: 700; white-space: nowrap;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #b6c0b8; }
+  .dot.on { background: #17a66d; box-shadow: 0 0 0 4px rgba(23,166,109,.13); }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: stretch; }
+  .card {
+    min-width: 0; padding: 23px;
+    border: 1px solid rgba(255,255,255,.82); border-radius: var(--radius-xl);
+    background: linear-gradient(145deg, rgba(255,255,255,.82), rgba(255,255,250,.61));
+    box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255,255,255,.88);
+    backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+  }
+  .card.full { grid-column: 1 / -1; }
+  .cardhead { display: flex; justify-content: space-between; align-items: center; gap: 13px; margin-bottom: 18px; }
+  .step { color: var(--ink); font: 800 15px Manrope, sans-serif; letter-spacing: -.35px; }
+  .step small { margin-right: 9px; color: #98a59c; font: 800 10px "DM Sans", sans-serif; letter-spacing: .15em; }
+  .field { min-width: 0; margin: 15px 0; }
+  .field label { display: block; margin-bottom: 8px; color: #45564b; font-size: 10px; font-weight: 800; letter-spacing: .075em; }
+  .input, textarea {
+    width: 100%; min-width: 0; padding: 12px 14px;
+    border: 1px solid rgba(125,145,132,.25); border-radius: var(--radius-md);
+    color: var(--ink); background: rgba(255,255,255,.78);
+    outline: none; box-shadow: inset 0 1px 2px rgba(30,50,37,.025);
+    transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+  }
+  .input:focus, textarea:focus { border-color: rgba(8,123,88,.48); background: #fff; box-shadow: 0 0 0 4px rgba(8,123,88,.075); }
+  textarea { min-height: 120px; resize: vertical; line-height: 1.65; }
+  select.input { appearance: auto; }
+  .fileinput {
+    display: block; width: 100%; min-width: 0; padding: 10px 12px;
+    border: 1px dashed rgba(93,133,106,.40); border-radius: var(--radius-md);
+    color: var(--muted); background: rgba(255,255,255,.55); font-size: 11px;
+  }
+  .fileinput::file-selector-button {
+    margin-right: 10px; padding: 8px 11px; border: 0; border-radius: 8px;
+    color: var(--emerald-deep); background: var(--emerald-wash); font: 700 10px "DM Sans", sans-serif;
+  }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 40px; padding: 10px 16px; border: 1px solid transparent; border-radius: 11px;
+    font-size: 11px; font-weight: 800; letter-spacing: .01em;
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease, opacity .18s ease;
+  }
+  .btn:hover:not(:disabled) { transform: translateY(-1px); }
+  .btn.primary {
+    color: white; background: linear-gradient(135deg, #11946a, #076447);
+    box-shadow: 0 8px 18px rgba(8,123,88,.18), inset 0 1px 0 rgba(255,255,255,.22);
+  }
+  .btn.primary:hover:not(:disabled) { background: linear-gradient(135deg, #0c865f, #064f39); box-shadow: 0 11px 22px rgba(8,123,88,.23); }
+  .btn.soft { color: #355b47; border-color: rgba(114,151,124,.15); background: rgba(226,238,227,.75); }
+  .btn.soft:hover:not(:disabled) { background: rgba(211,231,215,.95); }
+  .btn.danger { color: var(--red); border-color: rgba(189,81,73,.10); background: var(--red-wash); }
+  .btn.danger:hover:not(:disabled) { background: rgba(189,81,73,.15); }
+  .btn:disabled { opacity: .42; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btnrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .qrbox {
+    display: flex; min-height: 220px; align-items: center; justify-content: center; flex-direction: column; gap: 10px;
+    padding: 18px; border: 1px solid rgba(255,255,255,.92); border-radius: 19px;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(255,255,255,.92), transparent 62%),
+      rgba(237,244,237,.72);
+    box-shadow: inset 0 1px 5px rgba(60,90,67,.035);
+    text-align: center;
+  }
+  .qrbox img { width: 178px; height: 178px; padding: 8px; border: 1px solid rgba(130,153,135,.16); border-radius: 15px; background: #fff; box-shadow: 0 8px 25px rgba(28,53,35,.08); object-fit: contain; }
+  .qrtitle { color: var(--emerald-deep); font-size: 14px; font-weight: 800; }
+  .muted { color: var(--muted); font-size: 11px; line-height: 1.6; }
+  .statuspill {
+    display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto;
+    padding: 7px 11px; border: 1px solid rgba(125,145,132,.12); border-radius: 99px;
+    color: #69786f; background: rgba(234,238,231,.72); font-size: 10px; font-weight: 800;
+  }
+  .statuspill.ok { color: var(--emerald-deep); border-color: rgba(8,123,88,.12); background: rgba(8,123,88,.09); }
+  .notice { margin-top: 13px; padding: 12px 14px; border: 1px solid rgba(128,148,133,.12); border-radius: 12px; color: #68766d; background: rgba(240,244,237,.77); font-size: 11px; line-height: 1.6; }
+  .notice.error { color: var(--red); background: var(--red-wash); }
+  .notice.success { color: var(--emerald-deep); background: var(--emerald-wash); }
+  .hidden { display: none !important; }
+  .countline { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-top: 17px; }
+  .count { color: var(--emerald); font: 800 27px Manrope, sans-serif; }
+  .hint { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .12em; }
+  .consent { display: flex; align-items: flex-start; gap: 9px; margin: 14px 0; color: #657269; font-size: 11px; line-height: 1.6; }
+  .consent input { flex: 0 0 auto; margin-top: 2px; accent-color: var(--emerald); }
+  .stats { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 10px; margin: 3px 0 18px; }
+  .stat {
+    min-width: 0; padding: 14px 13px; border: 1px solid rgba(255,255,255,.86); border-radius: 14px;
+    background: rgba(248,250,245,.72); box-shadow: inset 0 1px 0 rgba(255,255,255,.84);
+  }
+  .stat strong { display: block; color: var(--ink); font: 800 25px Manrope, sans-serif; letter-spacing: -1px; }
+  .stat span { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; line-height: 1.4; }
+  .stat.green strong { color: var(--emerald); }
+  .stat.red strong { color: var(--red); }
+  .progressline { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; }
+  .progressbar { flex: 1; height: 8px; overflow: hidden; border: 1px solid rgba(130,150,135,.11); border-radius: 99px; background: rgba(218,227,217,.7); }
+  .progressbar span { display: block; width: 0; height: 100%; border-radius: 99px; background: linear-gradient(90deg,#6fbd91,#078057); transition: width .25s ease; }
+  .progressline small { min-width: 72px; color: var(--muted); font-size: 10px; text-align: right; }
+  .tablewrap { overflow: auto; border: 1px solid rgba(125,145,132,.18); border-radius: 13px; background: rgba(255,255,255,.58); }
+  table { width: 100%; min-width: 600px; border-collapse: collapse; font-size: 11px; }
+  th, td { padding: 13px 14px; border-bottom: 1px solid rgba(125,145,132,.13); text-align: left; vertical-align: top; }
+  th { color: #728077; background: rgba(238,243,235,.9); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+  tr:last-child td { border-bottom: 0; }
+  .status { font-weight: 800; text-transform: capitalize; }
+  .accepted { color: var(--emerald); } .failed { color: var(--red); } .pending { color: var(--gold); }
+  .stopped { color: #82709c; } .partial { color: #ad7629; } .sending { color: #4774a7; }
+  td.delivery { font-weight: 700; white-space: nowrap; }
+  td.delivery.server_ack { color: #64748b; } td.delivery.delivered { color: #334155; }
+  td.delivery.read { color: #2563eb; } td.delivery.error { color: #dc2626; }
+  td.delivery.not_confirmed { color: #64748b; }
+  .authscreen { display: grid; min-height: 100vh; place-items: center; padding: 24px; }
+  .authcard {
+    width: min(440px, 100%); padding: 34px; border: 1px solid rgba(255,255,255,.85); border-radius: 28px;
+    background: linear-gradient(145deg, rgba(255,255,255,.86), rgba(255,255,250,.66));
+    box-shadow: 0 28px 85px rgba(37,57,44,.12), inset 0 1px 0 rgba(255,255,255,.95);
+    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+  }
+  .authcard .brand { margin-bottom: 34px; }
+  .authcard h1 { margin: 0; font: 800 29px/1.2 Manrope, sans-serif; letter-spacing: -1.1px; }
+  .authcard p { margin: 10px 0 23px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+  .authcard .btn { width: 100%; margin-top: 6px; }
+  .authfoot { margin-top: 22px; color: #8b988f; font-size: 10px; letter-spacing: .035em; text-align: center; }
+  .error { min-height: 16px; margin-top: 9px; color: var(--red); font-size: 11px; }
+  .footnote { margin-top: 22px; color: #849188; font-size: 10px; letter-spacing: .035em; text-align: center; }
+  .footnote .btn { min-height: 30px; vertical-align: middle; }
+
+  @media (max-width: 900px) {
+    .stats { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  }
+  @media (max-width: 760px) {
+    .shell { padding: 20px 15px 38px; }
+    .layout { grid-template-columns: 1fr; }
+    .card.full { grid-column: auto; }
+    .hero { align-items: flex-start; flex-direction: column; gap: 15px; }
+    .signature { display: none; }
+    .card { padding: 19px; }
+    .brandname { font-size: 16px; }
+    .cardhead { align-items: flex-start; }
+    .footnote { line-height: 2.2; }
+  }
+  @media (max-width: 480px) {
+    .brandbar { margin-bottom: 28px; }
+    .brandmark { flex-basis: 43px; width: 43px; height: 43px; border-radius: 14px; }
+    .hero h1 { font-size: 30px; }
+    .cardhead { flex-wrap: wrap; }
+    .stats { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .authcard { padding: 25px 21px; }
+    .btnrow .input { max-width: 100% !important; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
 </style>
 </head>
 <body>
@@ -21,7 +247,7 @@
   <div class="eyebrow">Private workspace</div><h1>Welcome to WA Sender.</h1><p>Enter the TEAM VINIT JAIN access code to continue.</p>
   <div class="field"><label for="accessCode">TEAM ACCESS CODE</label><input class="input" id="accessCode" type="password" placeholder="Enter team access code" autocomplete="current-password"></div>
   <button id="unlockBtn" class="btn primary">Enter workspace <span aria-hidden="true">→</span></button><div id="authError" class="error"></div>
-  <div class="authfoot">DESIGNED BY SARTHAK JAIN · PRIVATE ACCESS</div>
+  <div class="authfoot">Designed by Sarthak Jain · Private workspace</div>
 </div></div>
 
 <div id="appView" class="shell hidden">
@@ -31,7 +257,7 @@
     <section class="card"><div class="cardhead"><div class="step"><small>01</small>Connect WhatsApp</div><span id="waPill" class="statuspill">Disconnected</span></div>
       <div id="qrBox" class="qrbox"><div class="qrtitle">Connect your WhatsApp</div><div class="muted">Generate a QR code and scan it from Linked devices.</div></div>
       <div class="btnrow" style="margin-top:13px"><button id="connectBtn" class="btn primary">Connect WhatsApp</button><button id="disconnectBtn" class="btn danger">Disconnect</button></div>
-      <div class="muted" style="margin-top:10px">On your phone: WhatsApp → Linked devices → Link a device.</div>
+      <div class="muted" style="margin-top:10px">On your phone: WhatsApp → Linked devices → Link a device. A manual disconnect resets the old link; the next Connect creates a fresh QR.</div>
     </section>
     <section class="card"><div class="cardhead"><div class="step"><small>02</small>Import contacts</div><span class="statuspill">CSV / Excel export</span></div>
       <div class="field"><label>CHOOSE YOUR CSV FILE</label><input class="fileinput" id="csvFile" type="file" accept=".csv,text/csv"></div>
@@ -52,7 +278,7 @@
       <div class="tablewrap"><table><thead><tr><th>Contact name / number</th><th>Mobile number</th><th>Send status</th><th>Delivery</th><th>Reason</th></tr></thead><tbody id="reportBody"><tr><td colspan="5" class="muted">No campaign activity yet.</td></tr></tbody></table></div>
     </section>
   </main>
-  <div class="footnote">WA SENDER · <span id="footerVersion">VERSION CHECKING</span> · DESIGNED BY SARTHAK JAIN <span style="padding:0 7px">•</span> <button id="logoutBtn" class="btn soft" style="padding:6px 10px;font-size:10px">Exit workspace</button><span style="padding:0 7px">•</span><button id="disconnectBtn2" class="btn danger" style="padding:6px 10px;font-size:10px">Disconnect WhatsApp</button></div>
+  <div class="footnote">WA SENDER · <span id="footerVersion">VERSION CHECKING</span> · Designed by Sarthak Jain <span style="padding:0 7px">•</span> <button id="logoutBtn" class="btn soft" style="padding:6px 10px;font-size:10px">Exit workspace</button><span style="padding:0 7px">•</span><button id="disconnectBtn2" class="btn danger" style="padding:6px 10px;font-size:10px">Disconnect WhatsApp</button></div>
   <div class="notice" style="margin-top:14px">Privacy & safety: each workspace uses a separate WhatsApp session. This prototype uses an unofficial WhatsApp Web integration; account restrictions are possible. Send only relevant messages to people who have opted in. “Accepted” is not a delivery receipt.</div>
 </div>
 <script>
@@ -69,10 +295,10 @@ async function restoreRunningCampaign(){try{const rows=await api('/api/campaigns
 async function unlock(){ $('authError').textContent='';$('unlockBtn').disabled=true;try{await api('/api/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:$('accessCode').value})});$('accessCode').value='';showApp();}catch(e){$('authError').textContent=e.message;}finally{$('unlockBtn').disabled=false;}}
 $('unlockBtn').onclick=unlock;$('accessCode').addEventListener('keydown',e=>{if(e.key==='Enter')unlock();});
 $('logoutBtn').onclick=async()=>{await api('/api/logout',{method:'POST'});if(pollTimer)clearInterval(pollTimer);if(statusTimer)clearInterval(statusTimer);showAuth();};
-$('connectBtn').onclick=async()=>{$('qrBox').innerHTML='<span class="muted">Preparing secure connection…</span>';try{await api('/api/whatsapp/connect',{method:'POST'});await refreshStatus();}catch(e){$('qrBox').textContent=e.message;}};
-async function disconnect(){if(!confirm('Disconnect WhatsApp and remove this workspace’s saved linked-device session?'))return;try{await api('/api/whatsapp/disconnect',{method:'POST'});await refreshStatus();}catch(e){$('appError').textContent=e.message;}}
+$('connectBtn').onclick=async()=>{$('qrBox').innerHTML='<div class="qrtitle">Preparing a fresh connection</div><div class="muted">Creating your WhatsApp QR code…</div>';$('connectBtn').disabled=true;try{await api('/api/whatsapp/connect',{method:'POST'});await refreshStatus();}catch(e){$('qrBox').textContent=e.message;$('connectBtn').disabled=false;}};
+async function disconnect(){if(!confirm('Disconnect WhatsApp and remove the current linked-device session? The next time you click Connect, a fresh QR code will be generated.'))return;$('disconnectBtn').disabled=true;$('disconnectBtn2').disabled=true;try{await api('/api/whatsapp/disconnect',{method:'POST'});await refreshStatus();}catch(e){$('appError').textContent=e.message;}finally{await refreshStatus();}}
 $('disconnectBtn').onclick=disconnect;$('disconnectBtn2').onclick=disconnect;
-async function refreshStatus(){try{const d=await api('/api/whatsapp/status');const labels={connected:'Connected',qr:'Scan QR',connecting:'Connecting',reconnecting:'Reconnecting',disconnecting:'Disconnecting',error:'Connection error',disconnected:'Disconnected'};const label=labels[d.status]||d.status;$('waPill').textContent=label;$('waPill').className='statuspill '+(d.status==='connected'?'ok':'');$('heroStatus').textContent=d.status==='connected'?'WhatsApp connected':'WhatsApp '+label.toLowerCase();$('heroDot').className='dot '+(d.status==='connected'?'on':'');$('connectBtn').disabled=['connected','connecting','qr','reconnecting','disconnecting'].includes(d.status);$('disconnectBtn').disabled=['disconnected','disconnecting'].includes(d.status);if(d.qrData)$('qrBox').innerHTML=`<img alt="WhatsApp linking QR code" src="${d.qrData}"><div class="muted">Scan from WhatsApp → Linked devices</div>`;else if(d.status==='connected')$('qrBox').innerHTML='<div class="qrtitle">✓ WhatsApp connected</div><div class="muted">'+escapeHtml(d.accountName||'Linked device')+(d.accountPhone?' · +'+escapeHtml(d.accountPhone):'')+' · Session ready.</div>';else $('qrBox').innerHTML=`<div class="qrtitle">${label}</div><div class="muted">${d.status==='connecting'?'Preparing your QR code…':d.status==='reconnecting'?'Trying to restore the connection…':'Click Connect WhatsApp to generate a QR code.'}</div>`;}catch{}}
+async function refreshStatus(){try{const d=await api('/api/whatsapp/status');const labels={connected:'Connected',qr:'Scan QR',connecting:'Connecting',reconnecting:'Reconnecting',disconnecting:'Disconnecting',error:'Connection error',disconnected:'Disconnected'};const label=labels[d.status]||d.status;$('waPill').textContent=label;$('waPill').className='statuspill '+(d.status==='connected'?'ok':'');$('heroStatus').textContent=d.status==='connected'?'WhatsApp connected':'WhatsApp '+label.toLowerCase();$('heroDot').className='dot '+(d.status==='connected'?'on':'');$('connectBtn').disabled=['connected','connecting','qr','reconnecting','disconnecting'].includes(d.status);$('disconnectBtn').disabled=['disconnected','disconnecting'].includes(d.status);if(d.qrData)$('qrBox').innerHTML=`<img alt="WhatsApp linking QR code" src="${d.qrData}"><div class="muted">Scan from WhatsApp → Linked devices</div>`;else if(d.status==='connected')$('qrBox').innerHTML='<div class="qrtitle">✓ WhatsApp connected</div><div class="muted">'+escapeHtml(d.accountName||'Linked device')+(d.accountPhone?' · +'+escapeHtml(d.accountPhone):'')+' · Session ready.</div>';else $('qrBox').innerHTML=`<div class="qrtitle">${label}</div><div class="muted">${d.status==='connecting'?'Preparing your QR code…':d.status==='reconnecting'?'Restoring after a temporary connection drop…':d.status==='disconnected'?'Your previous linked-device session is cleared. Click Connect WhatsApp for a fresh QR code.':'Click Connect WhatsApp to generate a fresh QR code.'}</div>`;}catch{}}
 $('previewBtn').onclick=async()=>{$('csvInfo').textContent='Importing your CSV…';contacts=[];$('contactCount').classList.add('hidden');const file=$('csvFile').files[0];if(!file){$('csvInfo').textContent='Please choose a CSV file first.';return;}const fd=new FormData();fd.append('csv',file);try{const d=await api('/api/contacts/preview',{method:'POST',body:fd});contacts=d.contacts;$('csvInfo').textContent='CSV imported successfully.';$('contactCount').classList.remove('hidden');$('contactCount').textContent=d.total+' valid contacts · '+(d.named||0)+' names · '+(d.mergeFieldCount||0)+' custom merge fields found.';}catch(e){$('csvInfo').textContent=e.message;}};
 $('attachments').addEventListener('change',()=>{const files=[...$('attachments').files];const total=files.reduce((n,f)=>n+f.size,0);const mb=(total/1024/1024).toFixed(1);$('attachmentInfo').textContent=files.length?`${files.length} file(s) selected · ${mb} MB / 200 MB`:'Choose up to 10 files · 50 MB each · 200 MB combined per campaign.';const oversized=files.find(f=>f.size>50*1024*1024);if(files.length>10||total>200*1024*1024||oversized){$('attachmentInfo').textContent=oversized?'Each file must be 50 MB or smaller.':'Selection exceeds 10 files or 200 MB combined. Remove some files.';$('attachmentInfo').style.color='var(--red)';}else{$('attachmentInfo').style.color='var(--muted)';}});
 $('sendBtn').onclick=async()=>{
