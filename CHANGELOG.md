@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.4.0
+- Match one-to-one delivery ACK events by the persisted outbound message ID, not only by the alias-dependent fromMe flag.
+- Aggregate delivery state across all message parts sent to one recipient; do not mark a multi-attachment recipient delivered after only one part is confirmed.
+- Preserve monotonic per-message ACK states and capture early receipts while a batch is active.
+- Listen for supplemental message-receipt.update events and log masked receipt diagnostics without message bodies or full phone numbers.
+- Enable Baileys' supported initial history/bootstrap sync and persist observed PN↔LID pairs into both SQLite and Baileys' internal mapping store.
+- Normalize contact-name source precedence so a placeholder saved-name cannot override a valid verified or push name.
+- Use CSV name, then WhatsApp profile/push name, then phone number; do not display “Unknown User”.
+- Retain the v4.3.1 upstream retry resend fix and 14-day retry-message retention.
+
 ## 4.3.1 — 2026-11-25
 
 ### WhatsApp retry and 479 fix
