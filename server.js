@@ -150,6 +150,29 @@ function normalizePhone(value) {
   if (digits.length < 11 || digits.length > 15) return null;
   return digits;
 }
+
+// Baileys 6.7.24 onWhatsApp() can return the contact's LID alongside the PN.
+// Prefer that recipient address when WhatsApp provides it; otherwise keep the PN JID.
+async function resolveRecipientJid(sock, phone) {
+  const pnJid = `${phone}@s.whatsapp.net`;
+  const results = await sock.onWhatsApp(pnJid);
+  const match = Array.isArray(results) ? results.find(item => item?.exists) : null;
+  if (!match) {
+    throw new Error("WhatsApp could not verify this recipient number. Check the country code and number.");
+  }
+
+  const rawLid = String(match.lid || "").trim();
+  if (rawLid) {
+    const lidJid = rawLid.includes("@") ? rawLid : `${rawLid}@lid`;
+    if (lidJid.endsWith("@lid")) {
+      return { jid: lidJid, mode: "lid" };
+    }
+  }
+
+  const verifiedJid = String(match.jid || pnJid).trim();
+  const jid = verifiedJid.includes("@") ? verifiedJid : `${verifiedJid}@s.whatsapp.net`;
+  return { jid, mode: "phone" };
+}
 function getClient(userId) { return waClients.get(userId) || null; }
 function cleanFiles(files = []) { for (const f of files) { try { fs.unlinkSync(f.path); } catch {} } }
 function clientStatus(userId) {
@@ -181,6 +204,7 @@ async function connectWhatsApp(userId) {
           messageId: key.id || null,
           recipient: maskJid(key.remoteJid),
           status: entry?.update?.status ?? null,
+          error: entry?.update?.messageStubParameters ?? null,
           messageTimestamp: entry?.update?.messageTimestamp ?? null
         });
       }
@@ -380,8 +404,14 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
         const personalized = message.replace(/\{\{\s*name\s*\}\}/gi, item.name || "");
         let sentParts = 0, errors = [];
         try {
+          const recipient = await resolveRecipientJid(liveClient.sock, item.phone);
+          console.log("[WA ROUTING]", {
+            phone: maskJid(`${item.phone}@s.whatsapp.net`),
+            route: recipient.mode,
+            target: maskJid(recipient.jid)
+          });
           if (personalized) {
-            const sentMessage = await liveClient.sock.sendMessage(`${item.phone}@s.whatsapp.net`, { text: personalized });
+            const sentMessage = await liveClient.sock.sendMessage(recipient.jid, { text: personalized });
             console.log("[WA SEND ACCEPTED]", {
               messageId: sentMessage?.key?.id || null,
               recipient: maskJid(sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`),
@@ -391,7 +421,7 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
           for (const file of files) {
             if (run.stopRequested) break;
             const payload = attachmentPayload(file);
-            const sentMessage = await liveClient.sock.sendMessage(`${item.phone}@s.whatsapp.net`, payload);
+            const sentMessage = await liveClient.sock.sendMessage(recipient.jid, payload);
             console.log("[WA SEND ACCEPTED]", {
               messageId: sentMessage?.key?.id || null,
               recipient: maskJid(sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`),
