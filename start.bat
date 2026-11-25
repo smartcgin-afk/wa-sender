@@ -8,12 +8,10 @@ if errorlevel 1 (
   exit /b 1
 )
 if not exist .env (
-  echo Missing .env. Copy .env.example to .env and configure it first.
-  pause
-  exit /b 1
+  copy .env.example .env >nul
+  echo Created .env with the default team access code.
 )
 if not exist node_modules (
-  echo Installing project dependencies...
   call npm install
   if errorlevel 1 (
     echo Dependency installation failed.
@@ -21,6 +19,5 @@ if not exist node_modules (
     exit /b 1
   )
 )
-echo Starting WA Sender...
 call npm start
 pause
