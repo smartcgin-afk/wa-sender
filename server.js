@@ -229,7 +229,7 @@ app.post("/api/unlock", async (req, res) => {
   if (attempts.length >= 10) return res.status(429).json({ error: "Too many attempts. Try again in 15 minutes." });
   const memberName = String(req.body.member || "").trim().slice(0, 60);
   const pin = String(req.body.pin || "");
-  const member = TEAM_MEMBERS.find(m => String(m.name || "").toLowerCase() === memberName.toLowerCase());
+  const member = TEAM_MEMBERS.find(m => String(m.name || "").trim().toLowerCase() === memberName.toLowerCase());
   let pinValid = false;
   if (member?.pin_bcrypt) {
     try { pinValid = await bcrypt.compare(pin, String(member.pin_bcrypt)); } catch { pinValid = false; }
@@ -249,11 +249,15 @@ app.post("/api/unlock", async (req, res) => {
     return res.status(401).json({ error: "Incorrect access code. Please try again." });
   }
   unlockAttempts.delete(ip);
-  req.session.userId = crypto.createHmac("sha256", SESSION_SECRET).update(member.name.trim().toLowerCase()).digest("hex");
-  req.session.label = member.name;
-  req.session.save(err => {
+  // Rotate the session identifier after authentication to reduce session-fixation risk.
+  req.session.regenerate(err => {
     if (err) return res.status(500).json({ error: "Could not create workspace session." });
-    res.json({ ok: true, label: req.session.label });
+    req.session.userId = crypto.createHmac("sha256", SESSION_SECRET).update(member.name.trim().toLowerCase()).digest("hex");
+    req.session.label = member.name.trim();
+    req.session.save(saveError => {
+      if (saveError) return res.status(500).json({ error: "Could not create workspace session." });
+      res.json({ ok: true, label: req.session.label });
+    });
   });
 });
 
