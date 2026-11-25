@@ -428,11 +428,7 @@ app.post("/api/contacts/preview", requireAuth, csvUpload.single("csv"), (req, re
   try { rows = parse(req.file.buffer, { columns: true, skip_empty_lines: true, bom: true, trim: true, relax_column_count: true }); }
   catch { return res.status(400).json({ error: "Could not read CSV. Use a valid CSV with Name (optional) and Mobile Number columns." }); }
   const first = rows[0] || {};
-  const normalizeHeader = value => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const nameHeaders = new Set(["name", "fullname", "customername", "contactname", "clientname", "leadname", "whatsappname", "pushname", "firstname"]);
-  const phoneHeaders = new Set(["mobile", "mobileno", "mobilenumber", "customermobile", "clientmobile", "primarymobile", "phone", "phoneno", "phonenumber", "customerphone", "clientphone", "primaryphone", "number", "whatsapp", "whatsappno", "whatsappnumber", "contactnumber", "contactno"]);
-  const nameKey = Object.keys(first).find(h => nameHeaders.has(normalizeHeader(h)));
-  const phoneKey = Object.keys(first).find(h => phoneHeaders.has(normalizeHeader(h)));
+  const { nameKey, phoneKey } = findContactColumns(Object.keys(first));
   if (!phoneKey) return res.status(400).json({ error: "CSV must contain a Mobile Number / Phone column." });
   const contacts = [], seen = new Set();
   for (const row of rows) {
@@ -441,11 +437,20 @@ app.post("/api/contacts/preview", requireAuth, csvUpload.single("csv"), (req, re
     seen.add(phone);
     const csvName = normalizeContactName(nameKey ? row[nameKey] : "");
     const cachedName = db.prepare("SELECT name FROM contacts WHERE user_id=? AND phone=?").get(req.session.userId, phone)?.name || "";
-    contacts.push({ name: csvName || cachedName, phone });
+    contacts.push({
+      name: csvName || normalizeContactName(cachedName),
+      phone,
+      variables: extractContactVariables(row, [nameKey, phoneKey])
+    });
   }
   if (!contacts.length) return res.status(400).json({ error: "No valid phone numbers found." });
   if (contacts.length > MAX_CONTACTS) return res.status(400).json({ error: `Maximum ${MAX_CONTACTS} contacts per campaign.` });
-  res.json({ contacts, total: contacts.length, note: "Only message contacts who explicitly opted in." });
+  const named = contacts.filter(contact => contact.name).length;
+  const mergeFieldCount = new Set(contacts.flatMap(contact => Object.keys(contact.variables))).size;
+  res.json({
+    contacts, total: contacts.length, named, mergeFieldCount,
+    note: "Only message contacts who explicitly opted in. CSV columns other than name and phone can be used as {{field}} placeholders."
+  });
 });
 
 const allowedExtensions = new Set([".jpg", ".jpeg", ".png", ".webp", ".mp4", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".csv", ".zip"]);
