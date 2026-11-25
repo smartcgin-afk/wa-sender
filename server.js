@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
+import { shouldRestoreWhatsAppSession } from "./lib/connection-utils.js";
 import {
   applyMessageTemplate, extractContactVariables, findContactColumns,
   normalizeCampaignOptions, normalizeContactName, normalizePhone,
@@ -88,7 +89,18 @@ db.exec(`
     user_id TEXT NOT NULL, phone TEXT NOT NULL, pn_jid TEXT NOT NULL, lid TEXT NOT NULL,
     updated_at TEXT NOT NULL, PRIMARY KEY (user_id, phone)
   );
+  CREATE TABLE IF NOT EXISTS whatsapp_session_state (
+    user_id TEXT PRIMARY KEY, manual_disconnect INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL
+  );
 `);
+function isManualDisconnect(userId) {
+  const row = db.prepare("SELECT manual_disconnect FROM whatsapp_session_state WHERE user_id=?").get(userId);
+  return row?.manual_disconnect === 1;
+}
+function setManualDisconnect(userId, value) {
+  db.prepare("INSERT INTO whatsapp_session_state (user_id,manual_disconnect,updated_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET manual_disconnect=excluded.manual_disconnect,updated_at=excluded.updated_at")
+    .run(userId, value ? 1 : 0, new Date().toISOString());
+}
 function ensureColumn(table, column, definition) {
   const columns = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
   if (!columns.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -322,9 +334,17 @@ async function connectWhatsApp(userId) {
   const old = getClient(userId);
   if (old?.status === "connected" || old?.connecting || old?.status === "qr") return;
   if (old?.reconnectTimer) clearTimeout(old.reconnectTimer);
+
+  // A user-initiated disconnect is a hard reset: never reuse the old linked-device credentials.
+  const forceFreshSession = shouldStartFreshWhatsAppSession(isManualDisconnect(userId));
+  const authDir = userSessionDir(userId);
+  if (forceFreshSession) {
+    fs.rmSync(authDir, { recursive: true, force: true });
+    setManualDisconnect(userId, false);
+  }
+
   const generation = (old?.generation || 0) + 1;
   waClients.set(userId, { status: "connecting", connecting: true, qrData: null, sock: null, generation, manualDisconnect: false, reconnectTimer: null });
-  const authDir = userSessionDir(userId);
   fs.mkdirSync(authDir, { recursive: true });
   try {
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
@@ -466,7 +486,10 @@ async function connectWhatsApp(userId) {
 
 // Restore the shared team's linked-device session if one was saved on disk.
 const sharedWorkspaceId = crypto.createHmac("sha256", SESSION_SECRET).update("team-vinit-jain-shared-workspace").digest("hex");
-if (fs.existsSync(userSessionDir(sharedWorkspaceId))) {
+if (shouldRestoreWhatsAppSession(
+  fs.existsSync(userSessionDir(sharedWorkspaceId)),
+  isManualDisconnect(sharedWorkspaceId)
+)) {
   connectWhatsApp(sharedWorkspaceId).catch(() => {});
 }
 
@@ -517,19 +540,43 @@ app.get("/api/whatsapp/status", requireAuth, (req, res) => res.json(clientStatus
 app.post("/api/whatsapp/disconnect", requireAuth, async (req, res) => {
   const userId = req.session.userId;
   if (campaignRuns.has(userId)) return res.status(409).json({ error: "Stop the active campaign before disconnecting WhatsApp." });
+
   const c = getClient(userId);
   if (c?.reconnectTimer) clearTimeout(c.reconnectTimer);
-  if (c) waClients.set(userId, { ...c, manualDisconnect: true, status: "disconnecting", qrData: null, reconnectTimer: null });
+
+  // Persist the manual choice before touching the socket so restarts cannot restore this session.
+  setManualDisconnect(userId, true);
+  const generation = (c?.generation || 0) + 1;
+  waClients.set(userId, {
+    ...(c || {}),
+    status: "disconnecting",
+    qrData: null,
+    reconnectTimer: null,
+    connecting: false,
+    manualDisconnect: true,
+    generation,
+    sock: null
+  });
+
   try {
     if (c?.sock) {
       try { await c.sock.logout(); } catch {}
       try { c.sock.end(undefined); } catch {}
     }
   } finally {
-    waClients.delete(userId);
     fs.rmSync(userSessionDir(userId), { recursive: true, force: true });
+    // Keep a generation tombstone in memory: late events from the old socket cannot revive it.
+    waClients.set(userId, {
+      status: "disconnected",
+      qrData: null,
+      sock: null,
+      connecting: false,
+      manualDisconnect: true,
+      generation,
+      reconnectTimer: null
+    });
   }
-  res.json({ ok: true, status: "disconnected" });
+  res.json({ ok: true, status: "disconnected", nextConnect: "fresh_qr" });
 });
 
 app.post("/api/contacts/preview", requireAuth, csvUpload.single("csv"), (req, res) => {
