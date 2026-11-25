@@ -249,17 +249,26 @@ function clientStatus(userId) {
     accountPhone: accountPhone && /^\d+$/.test(accountPhone) ? accountPhone : null
   };
 }
-function applyCampaignDelivery(messageId, delivery, updatedAt = new Date().toISOString()) {
+function applyCampaignDelivery(messageId, delivery, updatedAt = new Date().toISOString(), errorDetails = null) {
   const result = db.prepare("UPDATE campaign_item_messages SET status=?,updated_at=? WHERE message_id=?")
     .run(delivery, updatedAt, messageId);
   if (!result.changes) {
-    earlyDeliveryAcks.set(messageId, { delivery, updatedAt });
+    earlyDeliveryAcks.set(messageId, { delivery, updatedAt, errorDetails });
     if (earlyDeliveryAcks.size > 5000) earlyDeliveryAcks.delete(earlyDeliveryAcks.keys().next().value);
     return;
   }
-  if (delivery === "delivered" || delivery === "read") {
-    db.prepare("UPDATE campaign_items SET delivery_status=CASE WHEN ?='read' THEN 'read' WHEN delivery_status='read' THEN 'read' ELSE 'delivered' END WHERE id IN (SELECT item_id FROM campaign_item_messages WHERE message_id=?)")
-      .run(delivery, messageId);
+  const linked = db.prepare("SELECT item_id FROM campaign_item_messages WHERE message_id=?").get(messageId);
+  if (!linked) return;
+  if (delivery === "server_ack") {
+    db.prepare("UPDATE campaign_items SET delivery_status='server_ack' WHERE id=? AND delivery_status NOT IN ('delivered','read')")
+      .run(linked.item_id);
+  } else if (delivery === "delivered" || delivery === "read") {
+    db.prepare("UPDATE campaign_items SET delivery_status=CASE WHEN ?='read' THEN 'read' WHEN delivery_status='read' THEN 'read' ELSE 'delivered' END WHERE id=?")
+      .run(delivery, linked.item_id);
+  } else if (delivery === "error") {
+    const detail = String(errorDetails || "WhatsApp returned an error for this message.").slice(0, 180);
+    db.prepare("UPDATE campaign_items SET delivery_status='error',reason=? WHERE id=? AND delivery_status NOT IN ('delivered','read')")
+      .run(`WhatsApp rejected the message: ${detail}`, linked.item_id);
   }
 }
 function recordOutboundMessage(message, campaignId, itemId, userId) {
@@ -270,7 +279,7 @@ function recordOutboundMessage(message, campaignId, itemId, userId) {
   const pending = earlyDeliveryAcks.get(messageId);
   if (pending) {
     earlyDeliveryAcks.delete(messageId);
-    applyCampaignDelivery(messageId, pending.delivery, pending.updatedAt);
+    applyCampaignDelivery(messageId, pending.delivery, pending.updatedAt, pending.errorDetails);
   }
 }
 
