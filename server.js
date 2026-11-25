@@ -10,10 +10,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
+import {
+  applyMessageTemplate, extractContactVariables, findContactColumns,
+  normalizeCampaignOptions, normalizeContactName, normalizePhone,
+  sanitizeContactVariables, summarizeBatch
+} from "./lib/campaign-utils.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
+const APP_VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8")).version;
 const ACCESS_CODE = process.env.ACCESS_CODE || "";
 if (!ACCESS_CODE.trim() || /replace|change.?me|example|private-team-code/i.test(ACCESS_CODE)) {
   throw new Error("Set your own private ACCESS_CODE in .env before starting. Do not use the public example value.");
@@ -66,7 +72,8 @@ db.exec(`
   );
   CREATE TABLE IF NOT EXISTS campaign_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL, user_id TEXT NOT NULL,
-    name TEXT, phone TEXT NOT NULL, status TEXT NOT NULL, reason TEXT, updated_at TEXT NOT NULL
+    name TEXT, phone TEXT NOT NULL, variables TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL, reason TEXT, updated_at TEXT NOT NULL
   );
   CREATE TABLE IF NOT EXISTS campaign_item_messages (
     message_id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL, item_id INTEGER NOT NULL,
@@ -85,8 +92,9 @@ function ensureColumn(table, column, definition) {
 ensureColumn("campaigns", "status", "TEXT NOT NULL DEFAULT 'completed'");
 ensureColumn("campaigns", "completed_at", "TEXT");
 ensureColumn("campaign_items", "delivery_status", "TEXT NOT NULL DEFAULT 'not_confirmed'");
+ensureColumn("campaign_items", "variables", "TEXT NOT NULL DEFAULT '{}'");
 db.prepare("UPDATE campaign_items SET name=NULL WHERE name IS NOT NULL AND lower(trim(name)) IN ('unknown user','unknown','unknown contact','not available','n/a','null')").run();
-db.prepare("UPDATE campaign_items SET status='stopped', reason='Server restarted before this contact was processed.', updated_at=? WHERE status='pending' AND campaign_id IN (SELECT id FROM campaigns WHERE status='running')").run(new Date().toISOString());
+db.prepare("UPDATE campaign_items SET status='stopped', reason='Server restarted before this contact was processed. It was not automatically retried to avoid duplicate sends.', updated_at=? WHERE status IN ('pending','sending') AND campaign_id IN (SELECT id FROM campaigns WHERE status='running')").run(new Date().toISOString());
 db.prepare("UPDATE campaigns SET status='interrupted', completed_at=? WHERE status='running'").run(new Date().toISOString());
 
 app.disable("x-powered-by");
@@ -156,21 +164,6 @@ function userSessionDir(userId) { return path.join(SESSIONS_DIR, userId); }
 function maskJid(jid) {
   const user = String(jid || "").split("@")[0].split(":")[0];
   return user.length > 4 ? `…${user.slice(-4)}` : "unknown";
-}
-function normalizePhone(value) {
-  let digits = String(value || "").replace(/\D/g, "");
-  if (!digits) return null;
-  if (digits.startsWith("00") && digits.length > 11) digits = digits.slice(2);
-  if (digits.startsWith("910") && digits.length === 13) digits = "91" + digits.slice(3);
-  if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
-  if (digits.length === 10) digits = "91" + digits;
-  if (digits.length < 8 || digits.length > 15 || digits.startsWith("0")) return null;
-  return digits;
-}
-function normalizeContactName(value) {
-  const name = String(value || "").replace(/\s+/g, " ").trim().slice(0, 100);
-  if (!name || /^(unknown(?:\s+user)?|unknown\s+contact|not\s+available|n\/a|null)$/i.test(name)) return "";
-  return name;
 }
 function saveContactMetadata(userId, contact, fallbackName = "") {
   const name = [contact?.name, contact?.verifiedName, contact?.notify, contact?.pushName, fallbackName]
