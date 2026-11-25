@@ -11,6 +11,7 @@ import {
   normalizeCampaignOptions,
   normalizeContactName,
   normalizePhone,
+  mapBaileysDeliveryStatus,
   sanitizeContactVariables,
   summarizeBatch
 } from "../lib/campaign-utils.js";
@@ -132,3 +133,5 @@ test("prefers a trusted mapped LID and falls back to a verified phone JID", () =
     { jid: "123456789012345@lid", mode: "lid" }
   );
 });
+
+test('maps Baileys ACK status including ERROR to explicit delivery states', () => { const cases = [[0,'error'],[1,null],[2,'server_ack'],[3,'delivered'],[4,'read'],[5,'read'],[undefined,null],['invalid',null]]; for (const [input, expected] of cases) assert.equal(mapBaileysDeliveryStatus(input), expected); });
