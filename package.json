@@ -1,6 +1,6 @@
 {
   "name": "wa-bulk-sender",
-  "version": "4.3.0",
+  "version": "4.3.1",
   "private": true,
   "type": "module",
   "description": "TEAM VINIT JAIN shared-workspace WhatsApp batch sender with queued campaigns, contact mail merge and per-recipient delivery reporting",
@@ -14,7 +14,7 @@
     "node": ">=22.6.0 <23"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "@whiskeysockets/baileys": "github:WhiskeySockets/Baileys#cd4715ef2f26571c21f1d338ecb5dbc01eca0142",
     "better-sqlite3": "^11.7.0",
     "csv-parse": "^5.6.0",
     "express": "^4.21.2",
