@@ -1,6 +1,6 @@
-# WA Sender V4.1 — TEAM VINIT JAIN
+# WA Sender V4.2.0 — TEAM VINIT JAIN
 
-A simple, self-hosted open-source-style WhatsApp campaign workspace for small, opt-in campaigns. Login requires only one shared team access code.
+A self-hosted WhatsApp batch workspace for small, opted-in TEAM VINIT JAIN campaigns. Version 4.2.0 adds an OpenWA-style asynchronous batch workflow, per-recipient outcomes, cancellation, CSV mail merge and delivery receipts.
 
 ## Login
 
@@ -11,7 +11,8 @@ A simple, self-hosted open-source-style WhatsApp campaign workspace for small, o
 ## Important
 
 - This uses the unofficial Baileys WhatsApp Web integration. It is not the official WhatsApp Business Platform and may result in account restrictions. Use only with recipients who explicitly opted in, honour opt-outs, and follow WhatsApp terms and applicable law.
-- “Accepted” means the linked session accepted the send request; it does **not** prove delivery or reading.
+- Batch creation returns immediately with a batch ID and status URL. Check the campaign report for per-recipient results.
+- “Accepted” means the linked session accepted the send request; it does **not** prove delivery or reading. WhatsApp delivery receipts arrive asynchronously and may be unavailable.
 - Keep campaigns small and relevant. Do not use this for unsolicited bulk messaging.
 - This is a self-hosted prototype, not a certified production messaging platform. Protect the access code and restrict network access.
 
@@ -35,10 +36,11 @@ A simple, self-hosted open-source-style WhatsApp campaign workspace for small, o
    nano .env
    ```
 
-3. Install and start:
+3. Install, run the test suite and start:
 
    ```bash
    npm install
+   npm test
    npm start
    ```
 
@@ -56,10 +58,13 @@ Never commit `.env`, database files, contacts, attachments or WhatsApp session f
 
 ## Limits
 
-- Up to 100 contacts per campaign
+- Up to 100 contacts per asynchronous batch
 - Up to 10 attachments per campaign
 - Up to 50 MB per attachment, 200 MB combined per campaign
-- Configurable delay between contacts, optional 0–2 second jitter, and stop-on-first-error
+- Configurable 1–60 second delay between recipients (default 3 seconds), optional 0–2 second jitter, and stop-on-first-error
+- Campaign history, cancellation, batch progress and CSV delivery report
+- CSV mail merge supports {{name}}, {{phone}} and other CSV columns as placeholders
+- Processed recipients are not automatically retried after a crash; ambiguous sends are marked partial to avoid accidental duplicate messages
 - CSV must include a Mobile Number / Phone column; Name is optional
 
 ## Run when needed
