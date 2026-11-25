@@ -1,5 +1,25 @@
 # Changelog
 
+## 4.3.0 — 2026-11-25
+
+### WhatsApp transport and LID routing
+- Upgraded the unofficial Baileys transport from 6.7.24 to the official 7.0.0-rc14 release candidate. This is a breaking major-version upgrade; validate the linked session with a small opted-in test before campaigns.
+- Capture phone-number JID ↔ LID pairs from contact metadata, standalone LID mapping events, message alternate JIDs and history-sync mappings.
+- Persist observed PN/LID mappings in the workspace SQLite database so they survive an app restart.
+- Prefer a trusted, previously observed LID when sending; continue to use the verified phone JID when no trusted LID is known. Never synthesize a LID from a phone number.
+- Restore a persisted mapping into the active Baileys session mapping store before routing a message when needed.
+
+### Delivery and rejection reporting
+- Record Baileys message status 0 (ERROR) as an explicit WhatsApp rejection instead of silently treating it as unconfirmed.
+- Preserve error details in the campaign recipient report and terminal log, including when an ACK arrives before the sent-message row is inserted.
+- Display separate server-accepted, delivered, read and WhatsApp-rejected states. A send request accepted by the linked session is still not a delivery guarantee.
+- Do not auto-retry messages rejected or left in an ambiguous state, to avoid repeated reach-outs and duplicate sends.
+
+### Verification and limitations
+- Added unit coverage for PN/LID normalization, alternate-JID pair extraction and LID-first recipient selection.
+- Static and automated tests do not prove live WhatsApp delivery. A real linked-device test is still required.
+- Baileys 7.0.0-rc14 is a release candidate; no code can override WhatsApp account-level reach-out restrictions or guarantee double ticks.
+
 ## 4.2.0 — 2026-11-25
 
 ### Bulk batch workflow
