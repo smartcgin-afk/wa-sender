@@ -56,9 +56,10 @@ Never commit `.env`, database files, contacts, attachments or WhatsApp session f
 
 ## Limits
 
-- Up to 40 contacts per campaign
+- Up to 100 contacts per campaign
 - Up to 10 attachments per campaign
-- 200 MB combined attachment limit
+- Up to 50 MB per attachment, 200 MB combined per campaign
+- Configurable delay between contacts, optional 0–2 second jitter, and stop-on-first-error
 - CSV must include a Mobile Number / Phone column; Name is optional
 
 ## Run when needed
