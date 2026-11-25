@@ -4,7 +4,7 @@ A simple, self-hosted open-source-style WhatsApp campaign workspace for small, o
 
 ## Login
 
-- Default team access code in `.env.example`: `Teamvinitjain`.
+- Set your own private team access code in `.env`. The public example file intentionally contains only a placeholder.
 - No member name, personal PIN, email account or per-user registration is required.
 - Everyone who uses the team code shares one workspace, one campaign history and one linked WhatsApp session. Only one WhatsApp number can be connected to this shared workspace at a time. To switch numbers, disconnect the current linked device and scan the next number's QR code.
 
@@ -29,7 +29,7 @@ A simple, self-hosted open-source-style WhatsApp campaign workspace for small, o
    cp .env.example .env
    ```
 
-2. Open `.env` and change `ACCESS_CODE` if you want a different shared team code:
+2. Open `.env` and replace the placeholder with a private team access code. Do not reuse a value shown in GitHub history:
 
    ```bash
    nano .env
