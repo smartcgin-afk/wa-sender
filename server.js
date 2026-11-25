@@ -182,8 +182,8 @@ function saveContactMetadata(userId, contact, fallbackName = "") {
     .run(userId, phone, name, jid, lid, source, new Date().toISOString());
 }
 
-// Baileys 6.7.24 onWhatsApp() can return the contact's LID alongside the PN.
-// Prefer that recipient address when WhatsApp provides it; otherwise keep the PN JID.
+// Validate the phone number with onWhatsApp(), then use only a PN→LID mapping
+// already cached by this linked session. Never invent a LID from a phone number.
 async function resolveRecipientJid(sock, phone) {
   const pnJid = `${phone}@s.whatsapp.net`;
   const results = await sock.onWhatsApp(pnJid);
