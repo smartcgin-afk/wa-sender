@@ -57,9 +57,10 @@
 <script>
 const $=id=>document.getElementById(id);let contacts=[],currentCampaign=null,pollTimer=null,statusTimer=null;
 async function api(url,options={}){const res=await fetch(url,options);const data=await res.json().catch(()=>({}));if(!res.ok)throw new Error(data.error||'Request failed');return data;}
+async function loadVersion(){try{const d=await api('/api/version');const label='v'+d.version;$('appVersion').textContent=label;$('footerVersion').textContent=label;document.title='WA Sender '+label+' — Sarthak Jain';}catch{$('appVersion').textContent='version unavailable';$('footerVersion').textContent='VERSION UNAVAILABLE';}}
 function showAuth(){$('authView').classList.remove('hidden');$('appView').classList.add('hidden');}
 function showApp(){$('authView').classList.add('hidden');$('appView').classList.remove('hidden');refreshStatus();if(statusTimer)clearInterval(statusTimer);statusTimer=setInterval(refreshStatus,2500);}
-async function checkMe(){try{const d=await api('/api/me');if(d.loggedIn){showApp();await restoreRunningCampaign();}else showAuth();}catch{showAuth();}}
+async function checkMe(){await loadVersion();try{const d=await api('/api/me');if(d.loggedIn){showApp();await restoreRunningCampaign();}else showAuth();}catch{showAuth();}}
 async function loadCampaignHistory(selectedId=currentCampaign){try{const rows=await api('/api/campaigns');$('campaignHistory').innerHTML=rows.length?rows.map(c=>`<option value="${escapeHtml(c.id)}">${escapeHtml(new Date(c.created_at).toLocaleString())} · ${escapeHtml(c.status)}</option>`).join(''):'<option value="">No campaigns yet</option>';if(selectedId)$('campaignHistory').value=selectedId;}catch{}}
 async function chooseCampaign(id){if(!id)return;currentCampaign=id;if(pollTimer){clearInterval(pollTimer);pollTimer=null;}$('exportBtn').disabled=false;const data=await api('/api/campaigns/'+id);await refreshReport();if(data.running){$('stopBtn').disabled=false;pollTimer=setInterval(refreshReport,1500);}else $('stopBtn').disabled=true;}
 $('campaignHistory').onchange=()=>chooseCampaign($('campaignHistory').value);
@@ -71,11 +72,94 @@ $('connectBtn').onclick=async()=>{$('qrBox').innerHTML='<span class="muted">Prep
 async function disconnect(){if(!confirm('Disconnect WhatsApp and remove this workspace’s saved linked-device session?'))return;try{await api('/api/whatsapp/disconnect',{method:'POST'});await refreshStatus();}catch(e){$('appError').textContent=e.message;}}
 $('disconnectBtn').onclick=disconnect;$('disconnectBtn2').onclick=disconnect;
 async function refreshStatus(){try{const d=await api('/api/whatsapp/status');const labels={connected:'Connected',qr:'Scan QR',connecting:'Connecting',reconnecting:'Reconnecting',disconnecting:'Disconnecting',error:'Connection error',disconnected:'Disconnected'};const label=labels[d.status]||d.status;$('waPill').textContent=label;$('waPill').className='statuspill '+(d.status==='connected'?'ok':'');$('heroStatus').textContent=d.status==='connected'?'WhatsApp connected':'WhatsApp '+label.toLowerCase();$('heroDot').className='dot '+(d.status==='connected'?'on':'');$('connectBtn').disabled=['connected','connecting','qr','reconnecting','disconnecting'].includes(d.status);$('disconnectBtn').disabled=['disconnected','disconnecting'].includes(d.status);if(d.qrData)$('qrBox').innerHTML=`<img alt="WhatsApp linking QR code" src="${d.qrData}"><div class="muted">Scan from WhatsApp → Linked devices</div>`;else if(d.status==='connected')$('qrBox').innerHTML='<div class="qrtitle">✓ WhatsApp connected</div><div class="muted">'+escapeHtml(d.accountName||'Linked device')+(d.accountPhone?' · +'+escapeHtml(d.accountPhone):'')+' · Session ready.</div>';else $('qrBox').innerHTML=`<div class="qrtitle">${label}</div><div class="muted">${d.status==='connecting'?'Preparing your QR code…':d.status==='reconnecting'?'Trying to restore the connection…':'Click Connect WhatsApp to generate a QR code.'}</div>`;}catch{}}
-$('previewBtn').onclick=async()=>{$('csvInfo').textContent='Importing your CSV…';contacts=[];$('contactCount').classList.add('hidden');const file=$('csvFile').files[0];if(!file){$('csvInfo').textContent='Please choose a CSV file first.';return;}const fd=new FormData();fd.append('csv',file);try{const d=await api('/api/contacts/preview',{method:'POST',body:fd});contacts=d.contacts;$('csvInfo').textContent='CSV imported successfully.';$('contactCount').classList.remove('hidden');$('contactCount').textContent=`${d.total} valid contacts · ${d.named||0} names identified · ready to review.`;}catch(e){$('csvInfo').textContent=e.message;}};
+$('previewBtn').onclick=async()=>{$('csvInfo').textContent='Importing your CSV…';contacts=[];$('contactCount').classList.add('hidden');const file=$('csvFile').files[0];if(!file){$('csvInfo').textContent='Please choose a CSV file first.';return;}const fd=new FormData();fd.append('csv',file);try{const d=await api('/api/contacts/preview',{method:'POST',body:fd});contacts=d.contacts;$('csvInfo').textContent='CSV imported successfully.';$('contactCount').classList.remove('hidden');$('contactCount').textContent=d.total+' valid contacts · '+(d.named||0)+' names · '+(d.mergeFieldCount||0)+' custom merge fields found.';}catch(e){$('csvInfo').textContent=e.message;}};
 $('attachments').addEventListener('change',()=>{const files=[...$('attachments').files];const total=files.reduce((n,f)=>n+f.size,0);const mb=(total/1024/1024).toFixed(1);$('attachmentInfo').textContent=files.length?`${files.length} file(s) selected · ${mb} MB / 200 MB`:'Choose up to 10 files · 50 MB each · 200 MB combined per campaign.';const oversized=files.find(f=>f.size>50*1024*1024);if(files.length>10||total>200*1024*1024||oversized){$('attachmentInfo').textContent=oversized?'Each file must be 50 MB or smaller.':'Selection exceeds 10 files or 200 MB combined. Remove some files.';$('attachmentInfo').style.color='var(--red)';}else{$('attachmentInfo').style.color='var(--muted)';}});
-$('sendBtn').onclick=async()=>{$('appError').textContent='';if(!contacts.length){$('appError').textContent='Import a CSV file first.';return;}if(!$('optIn').checked){$('appError').textContent='Please confirm recipient opt-in before sending.';return;}const files=[...$('attachments').files];const totalBytes=files.reduce((n,f)=>n+f.size,0);const oversized=files.find(f=>f.size>50*1024*1024);if(files.length>10||totalBytes>200*1024*1024||oversized){$('appError').textContent=oversized?'Each attachment must be 50 MB or smaller.':'Maximum 10 files and 200 MB combined.';return;}if(!confirm(`Start a campaign for ${contacts.length} opted-in contacts with ${files.length} attachment(s)?`))return;const fd=new FormData();fd.append('contacts',JSON.stringify(contacts));fd.append('message',$('message').value);fd.append('confirmOptIn','true');fd.append('delayMs',$('delayMs').value);fd.append('randomizeDelay',String($('randomizeDelay').checked));fd.append('stopOnError',String($('stopOnError').checked));files.forEach(f=>fd.append('attachments',f));$('sendBtn').disabled=true;let campaignStarted=false;try{const d=await api('/api/campaigns/send',{method:'POST',body:fd});currentCampaign=d.campaignId;campaignStarted=true;$('exportBtn').disabled=false;$('stopBtn').disabled=false;$('reportNote').textContent=`Campaign running · ${d.attachmentCount} attachment(s). “Accepted” means the WhatsApp session accepted the request; delivery is not confirmed.`;await loadCampaignHistory(currentCampaign);await refreshReport();if(pollTimer)clearInterval(pollTimer);pollTimer=setInterval(refreshReport,1500);}catch(e){$('appError').textContent=e.message;}finally{if(!campaignStarted)$('sendBtn').disabled=false;}};
-$('stopBtn').onclick=async()=>{if(!currentCampaign)return;if(!confirm('Stop this campaign after the current contact operation?'))return;$('stopBtn').disabled=true;try{const d=await api(`/api/campaigns/${currentCampaign}/stop`,{method:'POST'});$('reportNote').textContent=d.message||'Stop requested.';await refreshReport();}catch(e){$('appError').textContent=e.message;$('stopBtn').disabled=false;}};
-async function refreshReport(){if(!currentCampaign)return;try{const d=await api('/api/campaigns/'+currentCampaign);const items=d.items;const accepted=items.filter(x=>x.status==='accepted').length,failed=items.filter(x=>x.status==='failed').length,pending=items.filter(x=>x.status==='pending').length,stopped=items.filter(x=>x.status==='stopped').length;const deliveryLabel={server_ack:'Server accepted',delivered:'Delivered',read:'Read',not_confirmed:'Not confirmed'};$('totalStat').textContent=d.campaign.total;$('acceptedStat').textContent=accepted;$('failedStat').textContent=failed;$('pendingStat').textContent=pending;$('stoppedStat').textContent=stopped;$('reportBody').innerHTML=items.map(i=>`<tr><td>${escapeHtml(i.name&&!['unknown','unknown user','unknown contact','not available','n/a','null'].includes(String(i.name).trim().toLowerCase())?i.name:('+'+i.phone))}</td><td>${escapeHtml('+'+i.phone)}</td><td class="status ${i.status}">${escapeHtml(i.status)}</td><td>${escapeHtml(deliveryLabel[i.delivery_status]||'Not confirmed')}</td><td>${escapeHtml(i.reason||'—')}</td></tr>`).join('');if(d.running){$('stopBtn').disabled=!!d.stopRequested;$('sendBtn').disabled=true;}else{$('stopBtn').disabled=true;$('sendBtn').disabled=false;if(pollTimer){clearInterval(pollTimer);pollTimer=null;}$('reportNote').textContent=`Campaign ${d.campaign.status}. Accepted by session is not a delivery receipt.`;loadCampaignHistory(currentCampaign);}}catch{}}
+$('sendBtn').onclick=async()=>{
+  $('appError').textContent='';
+  if(!contacts.length){$('appError').textContent='Import a CSV file first.';return;}
+  if(!$('optIn').checked){$('appError').textContent='Please confirm recipient opt-in before sending.';return;}
+  const files=[...$('attachments').files];
+  const totalBytes=files.reduce((n,f)=>n+f.size,0);
+  const oversized=files.find(f=>f.size>50*1024*1024);
+  if(files.length>10||totalBytes>200*1024*1024||oversized){$('appError').textContent=oversized?'Each attachment must be 50 MB or smaller.':'Maximum 10 files and 200 MB combined.';return;}
+  if(!confirm('Queue a batch for '+contacts.length+' opted-in recipients with '+files.length+' attachment(s)?'))return;
+  const fd=new FormData();
+  fd.append('contacts',JSON.stringify(contacts));
+  fd.append('message',$('message').value);
+  fd.append('confirmOptIn','true');
+  fd.append('delayBetweenMessages',$('delayMs').value);
+  fd.append('randomizeDelay',String($('randomizeDelay').checked));
+  fd.append('stopOnError',String($('stopOnError').checked));
+  files.forEach(file=>fd.append('attachments',file));
+  $('sendBtn').disabled=true;
+  let batchStarted=false;
+  try{
+    const d=await api('/api/campaigns/send',{method:'POST',body:fd});
+    currentCampaign=d.batchId||d.campaignId;
+    batchStarted=true;
+    $('exportBtn').disabled=false;
+    $('stopBtn').disabled=false;
+    $('reportNote').textContent='Batch '+currentCampaign+' queued · '+d.totalMessages+' recipient(s) · estimated finish '+new Date(d.estimatedCompletionTime).toLocaleString()+'.';
+    await loadCampaignHistory(currentCampaign);
+    await refreshReport();
+    if(pollTimer)clearInterval(pollTimer);
+    pollTimer=setInterval(refreshReport,1500);
+  }catch(e){
+    $('appError').textContent=e.message;
+    $('sendBtn').disabled=false;
+  }
+};
+$('stopBtn').onclick=async()=>{
+  if(!currentCampaign)return;
+  if(!confirm('Cancel this batch? The current recipient send may finish; remaining recipients will be cancelled.'))return;
+  $('stopBtn').disabled=true;
+  try{
+    const d=await api('/api/campaigns/'+encodeURIComponent(currentCampaign)+'/cancel',{method:'POST'});
+    $('reportNote').textContent=d.message||'Cancellation requested.';
+    await refreshReport();
+  }catch(e){
+    $('appError').textContent=e.message;
+    $('stopBtn').disabled=false;
+  }
+};
+async function refreshReport(){
+  if(!currentCampaign)return;
+  try{
+    const d=await api('/api/campaigns/'+encodeURIComponent(currentCampaign));
+    const items=d.items||[];
+    const progress=d.progress||{total:items.length,sent:0,failed:0,pending:0,cancelled:0,sending:0,partial:0};
+    const processed=Math.max(0,progress.total-progress.pending);
+    const percent=progress.total?Math.round(processed/progress.total*100):0;
+    const deliveryLabel={server_ack:'Server accepted',delivered:'Delivered',read:'Read',not_confirmed:'Not confirmed'};
+    $('totalStat').textContent=progress.total;
+    $('acceptedStat').textContent=progress.sent;
+    $('partialStat').textContent=progress.partial;
+    $('failedStat').textContent=progress.failed;
+    $('pendingStat').textContent=progress.pending+(progress.sending||0);
+    $('stoppedStat').textContent=progress.cancelled;
+    $('batchProgressFill').style.width=percent+'%';
+    $('batchProgressText').textContent=processed+' / '+progress.total+' · '+percent+'%';
+    $('reportBody').innerHTML=items.map(item=>{
+      const name=item.name&&!['unknown','unknown user','unknown contact','not available','n/a','null'].includes(String(item.name).trim().toLowerCase())?item.name:('+'+item.phone);
+      const viewStatus=item.status==='accepted'?'sent':item.status==='stopped'?'cancelled':item.status;
+      return '<tr><td>'+escapeHtml(name)+'</td><td>'+escapeHtml('+'+item.phone)+'</td><td class="status '+escapeHtml(viewStatus)+'">'+escapeHtml(viewStatus)+'</td><td>'+escapeHtml(deliveryLabel[item.delivery_status]||'Not confirmed')+'</td><td>'+escapeHtml(item.reason||'—')+'</td></tr>';
+    }).join('');
+    if(d.running){
+      $('stopBtn').disabled=!!d.stopRequested;
+      $('sendBtn').disabled=true;
+      $('reportNote').textContent='Batch processing · '+progress.sent+' sent, '+progress.failed+' failed, '+progress.pending+' queued, '+(progress.sending||0)+' in progress. Session acceptance is not a delivery receipt.';
+    }else{
+      $('stopBtn').disabled=true;
+      $('sendBtn').disabled=false;
+      if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
+      const state=d.status||d.campaign.status;
+      $('reportNote').textContent='Batch '+state+'. '+progress.sent+' sent, '+progress.failed+' failed, '+progress.partial+' partial, '+progress.cancelled+' cancelled. Check recipient delivery column for actual WhatsApp receipts.';
+      await loadCampaignHistory(currentCampaign);
+    }
+  }catch(e){
+    $('reportNote').textContent='Could not refresh this batch. '+e.message;
+  }
+}
 function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 $('exportBtn').onclick=()=>{if(currentCampaign)window.location.href='/api/campaigns/'+currentCampaign+'/export.csv';};checkMe();
 </script>
