@@ -15,8 +15,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const ACCESS_CODE = process.env.ACCESS_CODE || "";
-if (!ACCESS_CODE.trim()) {
-  throw new Error("Set ACCESS_CODE in .env before starting. Default team code: Teamvinitjain.");
+if (!ACCESS_CODE.trim() || /replace|change.?me|example|private-team-code/i.test(ACCESS_CODE)) {
+  throw new Error("Set your own private ACCESS_CODE in .env before starting. Do not use the public example value.");
 }
 
 const DATA_DIR = path.join(__dirname, "data");
