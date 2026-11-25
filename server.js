@@ -188,33 +188,30 @@ function saveContactMetadata(userId, contact, fallbackName = "") {
     .run(userId, phone, name, jid, lid, source, new Date().toISOString());
 }
 
-// Validate the phone number with onWhatsApp(), then use only a PN→LID mapping
-// already cached by this linked session. Never invent a LID from a phone number.
-async function resolveRecipientJid(sock, phone) {
-  const pnJid = `${phone}@s.whatsapp.net`;
+// Validate each number and prefer a known PN-to-LID mapping.
+async function resolveRecipientJid(sock, phone, userId) {
+  const pnJid = normalizePnJid(phone + "@s.whatsapp.net");
   const results = await sock.onWhatsApp(pnJid);
   const match = Array.isArray(results) ? results.find(item => item?.exists) : null;
-  if (!match) {
-    throw new Error("WhatsApp could not verify this recipient number. Check the country code and number.");
-  }
+  if (!match) throw new Error("WhatsApp could not verify this recipient number. Check the country code and number.");
 
-  // Baileys 6.7.x onWhatsApp() returns existence + PN JID, not a guaranteed LID.
-  // Use a LID only when this linked session already has a trusted PN→LID mapping.
   let mappedLid = null;
-  try {
-    mappedLid = await sock.signalRepository?.lidMapping?.getLIDForPN?.(pnJid);
-  } catch (error) {
-    console.warn("[WA LID LOOKUP] Cached LID lookup failed:", error?.message || error);
-  }
-  const discoveredLid = String(mappedLid || match.lid || "").trim();
-  if (discoveredLid) {
-    const lidJid = discoveredLid.includes("@") ? discoveredLid : discoveredLid + "@lid";
-    if (lidJid.endsWith("@lid")) return { jid: lidJid, mode: "lid_cached" };
+  try { mappedLid = await sock.signalRepository?.lidMapping?.getLIDForPN?.(pnJid); }
+  catch (error) { console.warn("[WA LID LOOKUP]", error?.message || error); }
+
+  const persisted = db.prepare("SELECT lid FROM contact_jid_mappings WHERE user_id=? AND phone=?").get(userId, phone);
+  const legacy = db.prepare("SELECT lid FROM contacts WHERE user_id=? AND phone=?").get(userId, phone);
+  const storedLid = persisted?.lid || legacy?.lid || null;
+  if (!mappedLid && storedLid) {
+    mappedLid = normalizeLidJid(storedLid);
+    if (mappedLid) {
+      try { await sock.signalRepository?.lidMapping?.storeLIDPNMappings?.([{ pn: pnJid, lid: mappedLid }]); }
+      catch (error) { console.warn("[WA LID RESTORE]", error?.message || error); }
+    }
   }
 
-  const verifiedJid = String(match.jid || pnJid).trim();
-  const jid = verifiedJid.includes("@") ? verifiedJid : `${verifiedJid}@s.whatsapp.net`;
-  return { jid, mode: "phone" };
+  const chosen = chooseRecipientJid({ phoneJid: pnJid, verifiedJid: match.jid || pnJid, mappedLid: mappedLid || match.lid });
+  return { ...chosen, mode: chosen.mode === "lid" ? "lid_cached" : "phone" };
 }
 function getClient(userId) { return waClients.get(userId) || null; }
 function cleanFiles(files = []) { for (const f of files) { try { fs.unlinkSync(f.path); } catch {} } }
