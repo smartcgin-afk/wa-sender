@@ -160,6 +160,7 @@ function normalizePhone(value) {
   let digits = String(value || "").replace(/\D/g, "");
   if (!digits) return null;
   if (digits.startsWith("00") && digits.length > 11) digits = digits.slice(2);
+  if (digits.startsWith("910") && digits.length === 13) digits = "91" + digits.slice(3);
   if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
   if (digits.length === 10) digits = "91" + digits;
   if (digits.length < 8 || digits.length > 15 || digits.startsWith("0")) return null;
@@ -430,7 +431,7 @@ app.post("/api/contacts/preview", requireAuth, csvUpload.single("csv"), (req, re
   const first = rows[0] || {};
   const normalizeHeader = value => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const nameHeaders = new Set(["name", "fullname", "customername", "contactname", "clientname", "leadname", "whatsappname", "pushname", "firstname"]);
-  const phoneHeaders = new Set(["mobile", "mobileno", "mobilenumber", "phone", "phoneno", "phonenumber", "number", "whatsapp", "whatsappno", "whatsappnumber", "contactnumber", "contactno"]);
+  const phoneHeaders = new Set(["mobile", "mobileno", "mobilenumber", "customermobile", "clientmobile", "primarymobile", "phone", "phoneno", "phonenumber", "customerphone", "clientphone", "primaryphone", "number", "whatsapp", "whatsappno", "whatsappnumber", "contactnumber", "contactno"]);
   const nameKey = Object.keys(first).find(h => nameHeaders.has(normalizeHeader(h)));
   const phoneKey = Object.keys(first).find(h => phoneHeaders.has(normalizeHeader(h)));
   if (!phoneKey) return res.status(400).json({ error: "CSV must contain a Mobile Number / Phone column." });
