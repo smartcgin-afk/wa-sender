@@ -145,6 +145,7 @@ const logger = pino({ level: "silent" });
 const waClients = new Map();
 const campaignRuns = new Map();
 const unlockAttempts = new Map();
+const earlyDeliveryAcks = new Map();
 
 function requireAuth(req, res, next) {
   if (!req.session.userId) return res.status(401).json({ error: "Enter the workspace access code first." });
@@ -223,11 +224,29 @@ function clientStatus(userId) {
     accountPhone: accountPhone && /^\d+$/.test(accountPhone) ? accountPhone : null
   };
 }
+function applyCampaignDelivery(messageId, delivery, updatedAt = new Date().toISOString()) {
+  const result = db.prepare("UPDATE campaign_item_messages SET status=?,updated_at=? WHERE message_id=?")
+    .run(delivery, updatedAt, messageId);
+  if (!result.changes) {
+    earlyDeliveryAcks.set(messageId, { delivery, updatedAt });
+    if (earlyDeliveryAcks.size > 5000) earlyDeliveryAcks.delete(earlyDeliveryAcks.keys().next().value);
+    return;
+  }
+  if (delivery === "delivered" || delivery === "read") {
+    db.prepare("UPDATE campaign_items SET delivery_status=CASE WHEN ?='read' THEN 'read' WHEN delivery_status='read' THEN 'read' ELSE 'delivered' END WHERE id IN (SELECT item_id FROM campaign_item_messages WHERE message_id=?)")
+      .run(delivery, messageId);
+  }
+}
 function recordOutboundMessage(message, campaignId, itemId, userId) {
   const messageId = message?.key?.id;
   if (!messageId) return;
   db.prepare("INSERT OR IGNORE INTO campaign_item_messages (message_id,campaign_id,item_id,user_id,status,updated_at) VALUES (?,?,?,?,?,?)")
     .run(messageId, campaignId, itemId, userId, "accepted", new Date().toISOString());
+  const pending = earlyDeliveryAcks.get(messageId);
+  if (pending) {
+    earlyDeliveryAcks.delete(messageId);
+    applyCampaignDelivery(messageId, pending.delivery, pending.updatedAt);
+  }
 }
 
 async function connectWhatsApp(userId) {
@@ -280,14 +299,7 @@ async function connectWhatsApp(userId) {
         if (!key.fromMe || !key.id) continue;
         const rawStatus = Number(entry?.update?.status);
         const delivery = rawStatus >= 4 ? "read" : rawStatus >= 3 ? "delivered" : rawStatus === 2 ? "server_ack" : null;
-        if (delivery) {
-          db.prepare("UPDATE campaign_item_messages SET status=?,updated_at=? WHERE message_id=?")
-            .run(delivery, new Date().toISOString(), key.id);
-          if (delivery === "delivered" || delivery === "read") {
-            db.prepare("UPDATE campaign_items SET delivery_status=CASE WHEN ?='read' THEN 'read' WHEN delivery_status='read' THEN 'read' ELSE 'delivered' END WHERE id IN (SELECT item_id FROM campaign_item_messages WHERE message_id=?)")
-              .run(delivery, key.id);
-          }
-        }
+        if (delivery) applyCampaignDelivery(key.id, delivery);
         console.log("[WA ACK]", {
           messageId: key.id,
           recipient: maskJid(key.remoteJid),
