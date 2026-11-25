@@ -13,7 +13,7 @@ import crypto from "node:crypto";
 import {
   applyMessageTemplate, extractContactVariables, findContactColumns,
   normalizeCampaignOptions, normalizeContactName, normalizePhone,
-  sanitizeContactVariables, summarizeBatch, extractPnLidPair, normalizeLidJid, normalizePnJid, chooseRecipientJid, mapBaileysDeliveryStatus
+  sanitizeContactVariables, summarizeBatch, extractPnLidPair, normalizeLidJid, normalizePnJid, chooseRecipientJid, mapBaileysDeliveryStatus, serializeRetryMessage, parseRetryMessage
 } from "./lib/campaign-utils.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -97,6 +97,7 @@ ensureColumn("campaigns", "status", "TEXT NOT NULL DEFAULT 'completed'");
 ensureColumn("campaigns", "completed_at", "TEXT");
 ensureColumn("campaign_items", "delivery_status", "TEXT NOT NULL DEFAULT 'not_confirmed'");
 ensureColumn("campaign_items", "variables", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("campaign_item_messages", "message_json", "TEXT");
 db.prepare("UPDATE campaign_items SET name=NULL WHERE name IS NOT NULL AND lower(trim(name)) IN ('unknown user','unknown','unknown contact','not available','n/a','null')").run();
 const startupTime = new Date().toISOString();
 db.prepare("UPDATE campaign_items SET status='stopped', reason='Server restarted before this recipient was processed. It was not automatically retried.', updated_at=? WHERE status='pending' AND campaign_id IN (SELECT id FROM campaigns WHERE status='running')").run(startupTime);
@@ -274,8 +275,9 @@ function applyCampaignDelivery(messageId, delivery, updatedAt = new Date().toISO
 function recordOutboundMessage(message, campaignId, itemId, userId) {
   const messageId = message?.key?.id;
   if (!messageId) return;
-  db.prepare("INSERT OR IGNORE INTO campaign_item_messages (message_id,campaign_id,item_id,user_id,status,updated_at) VALUES (?,?,?,?,?,?)")
-    .run(messageId, campaignId, itemId, userId, "accepted", new Date().toISOString());
+  const messageJson = serializeRetryMessage(message?.message);
+  db.prepare("INSERT INTO campaign_item_messages (message_id,campaign_id,item_id,user_id,status,updated_at,message_json) VALUES (?,?,?,?,?,?,?) ON CONFLICT(message_id) DO UPDATE SET message_json=COALESCE(excluded.message_json,campaign_item_messages.message_json),updated_at=excluded.updated_at")
+    .run(messageId, campaignId, itemId, userId, "accepted", new Date().toISOString(), messageJson);
   const pending = earlyDeliveryAcks.get(messageId);
   if (pending) {
     earlyDeliveryAcks.delete(messageId);
@@ -293,7 +295,16 @@ async function connectWhatsApp(userId) {
   fs.mkdirSync(authDir, { recursive: true });
   try {
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
-    const sock = makeWASocket({ auth: state, logger, printQRInTerminal: false, syncFullHistory: false, markOnlineOnConnect: false, browser: ["WA Sender", "Chrome", "1.0.0"] });
+    const sock = makeWASocket({
+      auth: state, logger, printQRInTerminal: false, syncFullHistory: false,
+      markOnlineOnConnect: false, browser: ["WA Sender", "Chrome", "1.0.0"],
+      getMessage: async key => {
+        if (!key?.id) return undefined;
+        const row = db.prepare("SELECT message_json FROM campaign_item_messages WHERE message_id=? AND user_id=?")
+          .get(key.id, userId);
+        return parseRetryMessage(row?.message_json);
+      }
+    });
     const current = getClient(userId);
     if (!current || current.generation !== generation || current.manualDisconnect) { try { sock.end(undefined); } catch {} return; }
     waClients.set(userId, { ...current, sock, connecting: false });
