@@ -171,7 +171,29 @@ function maskJid(jid) {
   const user = String(jid || "").split("@")[0].split(":")[0];
   return user.length > 4 ? `…${user.slice(-4)}` : "unknown";
 }
+function persistContactJidMapping(userId, pair) {
+  const normalized = pair && extractPnLidPair(pair.pn, pair.lid);
+  if (!normalized) return;
+  const phone = normalizePhone(normalized.pn.split("@")[0]);
+  if (!phone) return;
+  db.prepare("INSERT INTO contact_jid_mappings (user_id,phone,pn_jid,lid,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(user_id,phone) DO UPDATE SET pn_jid=excluded.pn_jid,lid=excluded.lid,updated_at=excluded.updated_at")
+    .run(userId, phone, normalized.pn, normalized.lid, new Date().toISOString());
+}
+async function storeContactJidMapping(sock, userId, pair) {
+  const normalized = pair && extractPnLidPair(pair.pn, pair.lid);
+  if (!normalized) return;
+  persistContactJidMapping(userId, normalized);
+  try { await sock.signalRepository?.lidMapping?.storeLIDPNMappings?.([normalized]); }
+  catch (error) { console.warn("[WA LID MAP]", error?.message || error); }
+}
 function saveContactMetadata(userId, contact, fallbackName = "") {
+  const pairs = [
+    extractPnLidPair(contact?.id, contact?.lid),
+    extractPnLidPair(contact?.id, contact?.phoneNumber),
+    extractPnLidPair(contact?.jid, contact?.lid),
+    extractPnLidPair(contact?.phoneNumber, contact?.lid)
+  ].filter(Boolean);
+  for (const pair of pairs) persistContactJidMapping(userId, pair);
   const name = [contact?.name, contact?.verifiedName, contact?.notify, contact?.pushName, fallbackName]
     .map(normalizeContactName).find(Boolean);
   if (!name) return;
