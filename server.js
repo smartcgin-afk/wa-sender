@@ -10,42 +10,39 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
-import bcrypt from "bcryptjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const ACCESS_CODE = process.env.ACCESS_CODE || "";
-let TEAM_MEMBERS;
-try {
-  TEAM_MEMBERS = JSON.parse(process.env.TEAM_MEMBERS || "[]");
-} catch {
-  throw new Error("TEAM_MEMBERS must be valid JSON. See README.md for the .env format.");
+if (!ACCESS_CODE.trim()) {
+  throw new Error("Set ACCESS_CODE in .env before starting. Default team code: Teamvinitjain.");
 }
-const SESSION_SECRET = process.env.SESSION_SECRET || "";
-if (SESSION_SECRET.length < 32 || /replace|change.?me|example/i.test(SESSION_SECRET)) {
-  throw new Error("Set a stable SESSION_SECRET (at least 32 characters) in .env. Do not generate a new one on each start.");
-}
-if (!ACCESS_CODE || /replace|change.?me|example/i.test(ACCESS_CODE)) {
-  throw new Error("Set a private ACCESS_CODE in .env before starting the app.");
-}
-if (!Array.isArray(TEAM_MEMBERS) || TEAM_MEMBERS.length === 0) {
-  throw new Error("TEAM_MEMBERS must contain at least one member. See README.md.");
-}
-const memberNames = new Set();
-for (const member of TEAM_MEMBERS) {
-  const normalizedName = String(member?.name || "").trim().toLowerCase();
-  if (!normalizedName || memberNames.has(normalizedName)) {
-    throw new Error("TEAM_MEMBERS must contain unique, non-empty member names.");
-  }
-  if (!member.pin_bcrypt && !/^[a-f0-9]{64}$/i.test(String(member.pin_sha256 || ""))) {
-    throw new Error(`Member "${member.name}" needs a pin_bcrypt hash. See README.md.`);
-  }
-  memberNames.add(normalizedName);
-}
+
 const DATA_DIR = path.join(__dirname, "data");
 const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
+fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// Keep a generated secret on local disk so app restarts keep the same cookie/session identity.
+// The file is inside data/ and is ignored by Git.
+const secretFile = path.join(DATA_DIR, "session-secret");
+let SESSION_SECRET = process.env.SESSION_SECRET || "";
+if (!SESSION_SECRET && fs.existsSync(secretFile)) {
+  SESSION_SECRET = fs.readFileSync(secretFile, "utf8").trim();
+}
+if (!SESSION_SECRET) {
+  SESSION_SECRET = crypto.randomBytes(48).toString("hex");
+  try {
+    fs.writeFileSync(secretFile, SESSION_SECRET + "\n", { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    if (error.code !== "EEXIST") throw error;
+    SESSION_SECRET = fs.readFileSync(secretFile, "utf8").trim();
+  }
+}
+if (SESSION_SECRET.length < 32) {
+  throw new Error("SESSION_SECRET must contain at least 32 characters.");
+}
 const MAX_CAMPAIGN_BYTES = 200 * 1024 * 1024;
 const MAX_FILES = 10;
 const MAX_CONTACTS = 40;
@@ -215,45 +212,39 @@ async function connectWhatsApp(userId) {
   }
 }
 
-// Restore session directories belonging to workspaces that were previously connected.
-for (const member of TEAM_MEMBERS) {
-  const id = crypto.createHmac("sha256", SESSION_SECRET).update(String(member.name).trim().toLowerCase()).digest("hex");
-  if (fs.existsSync(userSessionDir(id))) connectWhatsApp(id).catch(() => {});
+// Restore the shared team's linked-device session if one was saved on disk.
+const sharedWorkspaceId = crypto.createHmac("sha256", SESSION_SECRET).update("team-vinit-jain-shared-workspace").digest("hex");
+if (fs.existsSync(userSessionDir(sharedWorkspaceId))) {
+  connectWhatsApp(sharedWorkspaceId).catch(() => {});
 }
 
-app.post("/api/unlock", async (req, res) => {
-  if (!ACCESS_CODE || TEAM_MEMBERS.length === 0) return res.status(503).json({ error: "Admin setup is incomplete. Configure ACCESS_CODE and TEAM_MEMBERS in .env." });
+app.post("/api/unlock", (req, res) => {
   const ip = req.ip || req.socket.remoteAddress || "unknown";
   const now = Date.now();
   const attempts = (unlockAttempts.get(ip) || []).filter(t => now - t < 15 * 60 * 1000);
-  if (attempts.length >= 10) return res.status(429).json({ error: "Too many attempts. Try again in 15 minutes." });
-  const memberName = String(req.body.member || "").trim().slice(0, 60);
-  const pin = String(req.body.pin || "");
-  const member = TEAM_MEMBERS.find(m => String(m.name || "").trim().toLowerCase() === memberName.toLowerCase());
-  let pinValid = false;
-  if (member?.pin_bcrypt) {
-    try { pinValid = await bcrypt.compare(pin, String(member.pin_bcrypt)); } catch { pinValid = false; }
-  } else if (member?.pin_sha256) {
-    // Backward compatibility for existing V4 hashes; migrate these to bcrypt when convenient.
-    const pinHash = crypto.createHash("sha256").update(pin).digest("hex");
-    const storedHash = String(member.pin_sha256);
-    pinValid = /^[a-f0-9]{64}$/i.test(storedHash) &&
-      crypto.timingSafeEqual(Buffer.from(pinHash, "hex"), Buffer.from(storedHash, "hex"));
+  if (attempts.length >= 10) {
+    unlockAttempts.set(ip, attempts);
+    return res.status(429).json({ error: "Too many attempts. Try again in 15 minutes." });
   }
+
   const submitted = Buffer.from(String(req.body.code || ""));
   const expected = Buffer.from(ACCESS_CODE);
-  const codeValid = !!ACCESS_CODE && submitted.length === expected.length && crypto.timingSafeEqual(submitted, expected);
-  const valid = pinValid && codeValid;
+  const valid = submitted.length === expected.length &&
+    crypto.timingSafeEqual(submitted, expected);
+
   if (!valid) {
-    attempts.push(now); unlockAttempts.set(ip, attempts);
-    return res.status(401).json({ error: "Incorrect access code. Please try again." });
+    attempts.push(now);
+    unlockAttempts.set(ip, attempts);
+    return res.status(401).json({ error: "Incorrect team access code." });
   }
+
   unlockAttempts.delete(ip);
-  // Rotate the session identifier after authentication to reduce session-fixation risk.
+  // One shared team workspace: everyone using the team code sees the same campaign history
+  // and the same linked WhatsApp session.
   req.session.regenerate(err => {
     if (err) return res.status(500).json({ error: "Could not create workspace session." });
-    req.session.userId = crypto.createHmac("sha256", SESSION_SECRET).update(member.name.trim().toLowerCase()).digest("hex");
-    req.session.label = member.name.trim();
+    req.session.userId = sharedWorkspaceId;
+    req.session.label = "TEAM VINIT JAIN";
     req.session.save(saveError => {
       if (saveError) return res.status(500).json({ error: "Could not create workspace session." });
       res.json({ ok: true, label: req.session.label });
