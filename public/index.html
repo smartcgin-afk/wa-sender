@@ -130,7 +130,7 @@ async function refreshReport(){
     const progress=d.progress||{total:items.length,sent:0,failed:0,pending:0,cancelled:0,sending:0,partial:0};
     const processed=Math.max(0,progress.total-progress.pending);
     const percent=progress.total?Math.round(processed/progress.total*100):0;
-    const deliveryLabel={server_ack:'Server accepted',delivered:'Delivered',read:'Read',not_confirmed:'Not confirmed'};
+    const deliveryLabel={server_ack:'Server accepted',delivered:'Delivered',read:'Read',error:'WhatsApp rejected',not_confirmed:'Not confirmed'};
     $('totalStat').textContent=progress.total;
     $('acceptedStat').textContent=progress.sent;
     $('partialStat').textContent=progress.partial;
