@@ -17,8 +17,8 @@
 <body>
 <div id="authView" class="authscreen hidden"><div class="authcard">
   <div class="brand"><div class="brandmark">SJ</div><div><div class="brandname">WA SENDER</div><div class="brandmeta">A Sarthak Jain creation</div></div></div>
-  <div class="eyebrow">Private workspace</div><h1>Good to have you here.</h1><p>Enter your special access code to open your campaign workspace. No email or password required.</p>
-  <div class="field"><label for="memberName">TEAM MEMBER NAME</label><input class="input" id="memberName" type="text" placeholder="Enter your registered name" autocomplete="username"></div><div class="field"><label for="memberPin">PERSONAL PIN</label><input class="input" id="memberPin" type="password" placeholder="Enter your PIN" autocomplete="current-password"></div><div class="field"><label for="accessCode">TEAM ACCESS CODE</label><input class="input" id="accessCode" type="password" placeholder="Team access code" autocomplete="off"></div>
+  <div class="eyebrow">Private workspace</div><h1>Welcome to WA Sender.</h1><p>Enter the TEAM VINIT JAIN access code to continue.</p>
+  <div class="field"><label for="accessCode">TEAM ACCESS CODE</label><input class="input" id="accessCode" type="password" placeholder="Enter team access code" autocomplete="current-password"></div>
   <button id="unlockBtn" class="btn primary">Enter workspace <span aria-hidden="true">→</span></button><div id="authError" class="error"></div>
   <div class="authfoot">DESIGNED BY SARTHAK JAIN · PRIVATE ACCESS</div>
 </div></div>
@@ -59,7 +59,7 @@ function showAuth(){$('authView').classList.remove('hidden');$('appView').classL
 function showApp(){$('authView').classList.add('hidden');$('appView').classList.remove('hidden');refreshStatus();if(statusTimer)clearInterval(statusTimer);statusTimer=setInterval(refreshStatus,2500);}
 async function checkMe(){try{const d=await api('/api/me');if(d.loggedIn){showApp();await restoreRunningCampaign();}else showAuth();}catch{showAuth();}}
 async function restoreRunningCampaign(){try{const rows=await api('/api/campaigns');const running=rows.find(c=>c.status==='running');if(!running)return;currentCampaign=running.id;$('exportBtn').disabled=false;$('stopBtn').disabled=false;await refreshReport();if(pollTimer)clearInterval(pollTimer);pollTimer=setInterval(refreshReport,1500);}catch{}}
-async function unlock(){ $('authError').textContent='';$('unlockBtn').disabled=true;try{await api('/api/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({member:$('memberName').value,pin:$('memberPin').value,code:$('accessCode').value})});$('accessCode').value='';$('memberPin').value='';showApp();}catch(e){$('authError').textContent=e.message;}finally{$('unlockBtn').disabled=false;}}
+async function unlock(){ $('authError').textContent='';$('unlockBtn').disabled=true;try{await api('/api/unlock',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:$('accessCode').value})});$('accessCode').value='';showApp();}catch(e){$('authError').textContent=e.message;}finally{$('unlockBtn').disabled=false;}}
 $('unlockBtn').onclick=unlock;$('accessCode').addEventListener('keydown',e=>{if(e.key==='Enter')unlock();});
 $('logoutBtn').onclick=async()=>{await api('/api/logout',{method:'POST'});if(pollTimer)clearInterval(pollTimer);if(statusTimer)clearInterval(statusTimer);showAuth();};
 $('connectBtn').onclick=async()=>{$('qrBox').innerHTML='<span class="muted">Preparing secure connection…</span>';try{await api('/api/whatsapp/connect',{method:'POST'});await refreshStatus();}catch(e){$('qrBox').textContent=e.message;}};
