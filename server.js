@@ -94,7 +94,9 @@ ensureColumn("campaigns", "completed_at", "TEXT");
 ensureColumn("campaign_items", "delivery_status", "TEXT NOT NULL DEFAULT 'not_confirmed'");
 ensureColumn("campaign_items", "variables", "TEXT NOT NULL DEFAULT '{}'");
 db.prepare("UPDATE campaign_items SET name=NULL WHERE name IS NOT NULL AND lower(trim(name)) IN ('unknown user','unknown','unknown contact','not available','n/a','null')").run();
-db.prepare("UPDATE campaign_items SET status='stopped', reason='Server restarted before this contact was processed. It was not automatically retried to avoid duplicate sends.', updated_at=? WHERE status IN ('pending','sending') AND campaign_id IN (SELECT id FROM campaigns WHERE status='running')").run(new Date().toISOString());
+const startupTime = new Date().toISOString();
+db.prepare("UPDATE campaign_items SET status='stopped', reason='Server restarted before this recipient was processed. It was not automatically retried.', updated_at=? WHERE status='pending' AND campaign_id IN (SELECT id FROM campaigns WHERE status='running')").run(startupTime);
+db.prepare("UPDATE campaign_items SET status='partial', reason='Server restarted while this recipient was being sent. Outcome is ambiguous; check WhatsApp before retrying.', updated_at=? WHERE status='sending' AND campaign_id IN (SELECT id FROM campaigns WHERE status='running')").run(startupTime);
 db.prepare("UPDATE campaigns SET status='interrupted', completed_at=? WHERE status='running'").run(new Date().toISOString());
 
 app.disable("x-powered-by");
@@ -328,7 +330,10 @@ async function connectWhatsApp(userId) {
       }
       if (connection === "close") {
         const activeRun = campaignRuns.get(userId);
-        if (activeRun) activeRun.stopRequested = true;
+        if (activeRun) {
+          activeRun.stopRequested = true;
+          activeRun.stopReason = "connection_lost";
+        }
         const c = getClient(userId);
         if (!c || c.generation !== generation || c.manualDisconnect) return;
         const code = lastDisconnect?.error?.output?.statusCode;
@@ -677,15 +682,24 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
   })();
 });
 
-app.post("/api/campaigns/:id/stop", requireAuth, (req, res) => {
+function cancelCampaign(req, res) {
   const userId = req.session.userId;
   const campaign = db.prepare("SELECT id,status FROM campaigns WHERE id=? AND user_id=?").get(req.params.id, userId);
-  if (!campaign) return res.status(404).json({ error: "Campaign not found." });
+  if (!campaign) return res.status(404).json({ error: "Batch not found." });
+  if (campaign.status !== "running") {
+    return res.status(409).json({ error: `Batch is already ${campaign.status}; terminal batch states cannot be changed.` });
+  }
   const run = campaignRuns.get(userId);
-  if (!run || run.campaignId !== campaign.id) return res.status(409).json({ error: "This campaign is not currently running." });
+  if (!run || run.campaignId !== campaign.id || run.stopRequested) {
+    return res.status(409).json({ error: "This batch is not accepting a cancellation request." });
+  }
   run.stopRequested = true;
-  res.json({ ok: true, status: "stopping", message: "Stop requested. The current contact operation will finish, then remaining contacts will be stopped." });
-});
+  run.stopReason = "user";
+  res.json({ ok: true, batchId: campaign.id, status: "cancelling", message: "Cancellation queued. The current recipient operation will finish, then remaining recipients will be cancelled." });
+}
+app.post("/api/campaigns/:id/cancel", requireAuth, cancelCampaign);
+// Backwards-compatible route for the older WA Sender interface.
+app.post("/api/campaigns/:id/stop", requireAuth, cancelCampaign);
 
 app.get("/api/campaigns", requireAuth, (req, res) => {
   res.json(db.prepare("SELECT * FROM campaigns WHERE user_id=? ORDER BY created_at DESC LIMIT 20").all(req.session.userId));
@@ -694,8 +708,22 @@ app.get("/api/campaigns/:id", requireAuth, (req, res) => {
   const campaign = db.prepare("SELECT * FROM campaigns WHERE id=? AND user_id=?").get(req.params.id, req.session.userId);
   if (!campaign) return res.status(404).json({ error: "Campaign not found." });
   const items = db.prepare("SELECT name,phone,status,delivery_status,reason,updated_at FROM campaign_items WHERE campaign_id=? AND user_id=? ORDER BY id").all(req.params.id, req.session.userId);
+  const progress = summarizeBatch(items);
   const run = campaignRuns.get(req.session.userId);
-  res.json({ campaign, items, running: run?.campaignId === campaign.id, stopRequested: run?.campaignId === campaign.id && run.stopRequested });
+  const status = campaign.status === "running" ? "processing"
+    : campaign.status === "stopped" ? "cancelled"
+    : campaign.status === "error" ? "failed"
+    : campaign.status;
+  const results = items.map(item => ({
+    ...item,
+    batchItemStatus: item.status === "accepted" ? "sent" : item.status === "stopped" ? "cancelled" : item.status
+  }));
+  res.json({
+    batchId: campaign.id, status, progress, results,
+    campaign, items,
+    running: run?.campaignId === campaign.id,
+    stopRequested: run?.campaignId === campaign.id && run.stopRequested
+  });
 });
 app.get("/api/campaigns/:id/export.csv", requireAuth, (req, res) => {
   const campaign = db.prepare("SELECT id FROM campaigns WHERE id=? AND user_id=?").get(req.params.id, req.session.userId);
@@ -708,6 +736,8 @@ app.get("/api/campaigns/:id/export.csv", requireAuth, (req, res) => {
   res.send(csv);
 });
 
+app.get("/api/version", (_req, res) => res.json({ name: "WA Sender", version: APP_VERSION, release: `v${APP_VERSION}` }));
+
 app.use((err, req, res, next) => {
   console.error("Request error:", err?.message || err);
   if (res.headersSent) return next(err);
@@ -715,4 +745,4 @@ app.use((err, req, res, next) => {
 });
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
-app.listen(PORT, () => console.log(`WA Bulk Sender running at http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`WA Sender v${APP_VERSION} running at http://localhost:${PORT}`));
