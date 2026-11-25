@@ -13,7 +13,7 @@ import crypto from "node:crypto";
 import {
   applyMessageTemplate, extractContactVariables, findContactColumns,
   normalizeCampaignOptions, normalizeContactName, normalizePhone,
-  sanitizeContactVariables, summarizeBatch, extractPnLidPair, normalizeLidJid, normalizePnJid, chooseRecipientJid
+  sanitizeContactVariables, summarizeBatch, extractPnLidPair, normalizeLidJid, normalizePnJid, chooseRecipientJid, mapBaileysDeliveryStatus
 } from "./lib/campaign-utils.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -334,7 +334,7 @@ async function connectWhatsApp(userId) {
         if (!key.fromMe || !key.id) continue;
         const raw = entry?.update?.status;
         const status = raw == null ? null : Number(raw);
-        const delivery = status === 0 ? "error" : status >= 4 ? "read" : status === 3 ? "delivered" : status === 2 ? "server_ack" : null;
+        const delivery = mapBaileysDeliveryStatus(status);
         const detail = entry?.update?.messageStubParameters;
         if (delivery) applyCampaignDelivery(key.id, delivery, new Date().toISOString(), Array.isArray(detail) ? detail.join(" ") : detail);
         if (delivery === "error") console.warn("[WA MESSAGE REJECTED]", { id: key.id, recipient: maskJid(key.remoteJid), status, detail });
