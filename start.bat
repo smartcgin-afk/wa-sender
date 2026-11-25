@@ -1,9 +1,14 @@
 @echo off
-title WA Bulk Sender
+title WA Sender - TEAM VINIT JAIN
 cd /d "%~dp0"
 where node >nul 2>nul
 if errorlevel 1 (
-  echo Node.js 20 or newer is required. Install it from https://nodejs.org/
+  echo Node.js 22.6 or newer in the Node 22 line is required.
+  pause
+  exit /b 1
+)
+if not exist .env (
+  echo Missing .env. Copy .env.example to .env and configure it first.
   pause
   exit /b 1
 )
@@ -16,6 +21,6 @@ if not exist node_modules (
     exit /b 1
   )
 )
-echo Starting WA Bulk Sender...
+echo Starting WA Sender...
 call npm start
 pause
