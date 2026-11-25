@@ -21,5 +21,10 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Check JavaScript syntax
+        run: |
+          node --check server.js
+          node --check lib/campaign-utils.js
+          node --check tests/campaign-utils.test.js
       - name: Run unit tests
         run: npm test
