@@ -253,13 +253,10 @@ async function resolveRecipientJid(sock, phone, userId) {
   }
 
   const verifiedJid = normalizeLidJid(match.jid) || normalizePnJid(match.jid) || pnJid;
-  const observedPair = extractPnLidPair(pnJid, verifiedJid) || (match.lid ? extractPnLidPair(pnJid, match.lid) : null);
+  const resolvedLid = normalizeLidJid(mappedLid) || normalizeLidJid(storedLid) || normalizeLidJid(match.lid);
+  const observedPair = extractPnLidPair(pnJid, verifiedJid) || extractPnLidPair(pnJid, resolvedLid);
   if (observedPair) await storeContactJidMapping(sock, userId, observedPair);
-  if (!mappedLid && storedLid) {
-    const restoredPair = extractPnLidPair(pnJid, storedLid);
-    if (restoredPair) await storeContactJidMapping(sock, userId, restoredPair);
-  }
-  const chosen = chooseRecipientJid({ phoneJid: pnJid, verifiedJid, mappedLid: mappedLid || match.lid });
+  const chosen = chooseRecipientJid({ phoneJid: pnJid, verifiedJid, mappedLid: resolvedLid });
   return { ...chosen, mode: chosen.mode === "lid" ? (mappedLid ? "lid_live" : "lid_mapped") : "phone" };
 }
 function getClient(userId) { return waClients.get(userId) || null; }
