@@ -67,6 +67,10 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL, user_id TEXT NOT NULL,
     name TEXT, phone TEXT NOT NULL, status TEXT NOT NULL, reason TEXT, updated_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS campaign_item_messages (
+    message_id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL, item_id INTEGER NOT NULL,
+    user_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'accepted', updated_at TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS contacts (
     user_id TEXT NOT NULL, phone TEXT NOT NULL, name TEXT NOT NULL, jid TEXT, lid TEXT,
     source TEXT NOT NULL DEFAULT 'push_name', updated_at TEXT NOT NULL,
@@ -79,6 +83,7 @@ function ensureColumn(table, column, definition) {
 }
 ensureColumn("campaigns", "status", "TEXT NOT NULL DEFAULT 'completed'");
 ensureColumn("campaigns", "completed_at", "TEXT");
+ensureColumn("campaign_items", "delivery_status", "TEXT NOT NULL DEFAULT 'not_confirmed'");
 db.prepare("UPDATE campaign_items SET status='stopped', reason='Server restarted before this contact was processed.', updated_at=? WHERE status='pending' AND campaign_id IN (SELECT id FROM campaigns WHERE status='running')").run(new Date().toISOString());
 db.prepare("UPDATE campaigns SET status='interrupted', completed_at=? WHERE status='running'").run(new Date().toISOString());
 
@@ -187,8 +192,14 @@ async function resolveRecipientJid(sock, phone) {
 
   const rawLid = String(match.lid || "").trim();
   if (rawLid) {
-    const lidJid = rawLid.includes("@") ? rawLid : `${rawLid}@lid`;
+    const lidJid = rawLid.includes("@") ? rawLid : rawLid + "@lid";
     if (lidJid.endsWith("@lid")) {
+      // Persist the pair before sending, following OpenWA's documented PN↔LID approach.
+      try {
+        await sock.signalRepository?.lidMapping?.storeLIDPNMappings?.([{ lid: lidJid, pn: pnJid }]);
+      } catch (error) {
+        console.warn("[WA LID MAP] Could not persist recipient mapping:", error?.message || error);
+      }
       return { jid: lidJid, mode: "lid" };
     }
   }
@@ -201,7 +212,21 @@ function getClient(userId) { return waClients.get(userId) || null; }
 function cleanFiles(files = []) { for (const f of files) { try { fs.unlinkSync(f.path); } catch {} } }
 function clientStatus(userId) {
   const c = getClient(userId);
-  return { status: c?.status || "disconnected", qrData: c?.qrData || null };
+  const account = c?.sock?.user || null;
+  const rawId = String(account?.id || "");
+  const accountPhone = rawId.includes("@") ? rawId.split("@")[0].split(":")[0] : "";
+  return {
+    status: c?.status || "disconnected",
+    qrData: c?.qrData || null,
+    accountName: account?.name || account?.verifiedName || null,
+    accountPhone: accountPhone && /^\d+$/.test(accountPhone) ? accountPhone : null
+  };
+}
+function recordOutboundMessage(message, campaignId, itemId, userId) {
+  const messageId = message?.key?.id;
+  if (!messageId) return;
+  db.prepare("INSERT OR IGNORE INTO campaign_item_messages (message_id,campaign_id,item_id,user_id,status,updated_at) VALUES (?,?,?,?,?,?)")
+    .run(messageId, campaignId, itemId, userId, "accepted", new Date().toISOString());
 }
 
 async function connectWhatsApp(userId) {
@@ -240,11 +265,22 @@ async function connectWhatsApp(userId) {
     sock.ev.on("messages.update", updates => {
       for (const entry of updates || []) {
         const key = entry?.key || {};
-        if (!key.fromMe) continue;
+        if (!key.fromMe || !key.id) continue;
+        const rawStatus = Number(entry?.update?.status);
+        const delivery = rawStatus >= 4 ? "read" : rawStatus >= 3 ? "delivered" : rawStatus === 2 ? "server_ack" : null;
+        if (delivery) {
+          db.prepare("UPDATE campaign_item_messages SET status=?,updated_at=? WHERE message_id=?")
+            .run(delivery, new Date().toISOString(), key.id);
+          if (delivery === "delivered" || delivery === "read") {
+            db.prepare("UPDATE campaign_items SET delivery_status=CASE WHEN ?='read' THEN 'read' WHEN delivery_status='read' THEN 'read' ELSE 'delivered' END WHERE id IN (SELECT item_id FROM campaign_item_messages WHERE message_id=?)")
+              .run(delivery, key.id);
+          }
+        }
         console.log("[WA ACK]", {
-          messageId: key.id || null,
+          messageId: key.id,
           recipient: maskJid(key.remoteJid),
-          status: entry?.update?.status ?? null,
+          status: rawStatus || null,
+          delivery,
           error: entry?.update?.messageStubParameters ?? null,
           messageTimestamp: entry?.update?.messageTimestamp ?? null
         });
@@ -464,6 +500,7 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
           });
           if (personalized) {
             const sentMessage = await liveClient.sock.sendMessage(recipient.jid, { text: personalized });
+            recordOutboundMessage(sentMessage, campaignId, item.id, userId);
             console.log("[WA SEND ACCEPTED]", {
               messageId: sentMessage?.key?.id || null,
               recipient: maskJid(sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`),
@@ -474,6 +511,7 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
             if (run.stopRequested) break;
             const payload = attachmentPayload(file);
             const sentMessage = await liveClient.sock.sendMessage(recipient.jid, payload);
+            recordOutboundMessage(sentMessage, campaignId, item.id, userId);
             console.log("[WA SEND ACCEPTED]", {
               messageId: sentMessage?.key?.id || null,
               recipient: maskJid(sentMessage?.key?.remoteJid || `${item.phone}@s.whatsapp.net`),
@@ -536,7 +574,7 @@ app.get("/api/campaigns", requireAuth, (req, res) => {
 app.get("/api/campaigns/:id", requireAuth, (req, res) => {
   const campaign = db.prepare("SELECT * FROM campaigns WHERE id=? AND user_id=?").get(req.params.id, req.session.userId);
   if (!campaign) return res.status(404).json({ error: "Campaign not found." });
-  const items = db.prepare("SELECT name,phone,status,reason,updated_at FROM campaign_items WHERE campaign_id=? AND user_id=? ORDER BY id").all(req.params.id, req.session.userId);
+  const items = db.prepare("SELECT name,phone,status,delivery_status,reason,updated_at FROM campaign_items WHERE campaign_id=? AND user_id=? ORDER BY id").all(req.params.id, req.session.userId);
   const run = campaignRuns.get(req.session.userId);
   res.json({ campaign, items, running: run?.campaignId === campaign.id, stopRequested: run?.campaignId === campaign.id && run.stopRequested });
 });
