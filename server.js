@@ -305,43 +305,39 @@ async function connectWhatsApp(userId) {
     sock.ev.on("contacts.update", contacts => {
       for (const contact of contacts || []) saveContactMetadata(userId, contact);
     });
-    sock.ev.on("lid-mapping.update", async mapping => {
-      const lid = String(mapping?.lid || "").trim();
-      const pn = String(mapping?.pn || "").trim();
-      if (!lid || !pn) return;
-      try {
-        await sock.signalRepository?.lidMapping?.storeLIDPNMappings?.([{ lid, pn }]);
-      } catch (error) {
-        console.warn("[WA LID MAP] Incoming mapping could not be persisted:", error?.message || error);
+    sock.ev.on("lid-mapping.update", mapping => {
+      const pair = extractPnLidPair(mapping?.lid, mapping?.pn);
+      if (pair) persistContactJidMapping(userId, pair);
+    });
+    sock.ev.on("messaging-history.set", history => {
+      for (const contact of history?.contacts || []) saveContactMetadata(userId, contact);
+      for (const mapping of history?.lidPnMappings || []) {
+        const pair = extractPnLidPair(mapping?.lid, mapping?.pn);
+        if (pair) persistContactJidMapping(userId, pair);
       }
-      saveContactMetadata(userId, { id: pn, lid });
     });
     sock.ev.on("messages.upsert", event => {
       for (const message of event?.messages || []) {
-        if (message?.key?.fromMe || !message?.pushName) continue;
-        const key = message.key;
+        const key = message?.key || {};
+        for (const pair of [
+          extractPnLidPair(key.remoteJid, key.remoteJidAlt),
+          extractPnLidPair(key.participant, key.participantAlt)
+        ].filter(Boolean)) persistContactJidMapping(userId, pair);
+        if (key.fromMe || !message?.pushName) continue;
         const candidate = key.senderPn || key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid || "";
-        if (String(candidate).endsWith("@s.whatsapp.net")) {
-          saveContactMetadata(userId, { id: candidate, notify: message.pushName });
-        }
+        if (String(candidate).endsWith("@s.whatsapp.net")) saveContactMetadata(userId, { id: candidate, notify: message.pushName });
       }
     });
-    // Diagnostic only: WhatsApp delivery/ack state arrives asynchronously after sendMessage resolves.
     sock.ev.on("messages.update", updates => {
       for (const entry of updates || []) {
         const key = entry?.key || {};
         if (!key.fromMe || !key.id) continue;
-        const rawStatus = Number(entry?.update?.status);
-        const delivery = rawStatus >= 4 ? "read" : rawStatus >= 3 ? "delivered" : rawStatus === 2 ? "server_ack" : null;
-        if (delivery) applyCampaignDelivery(key.id, delivery);
-        console.log("[WA ACK]", {
-          messageId: key.id,
-          recipient: maskJid(key.remoteJid),
-          status: rawStatus || null,
-          delivery,
-          error: entry?.update?.messageStubParameters ?? null,
-          messageTimestamp: entry?.update?.messageTimestamp ?? null
-        });
+        const raw = entry?.update?.status;
+        const status = raw == null ? null : Number(raw);
+        const delivery = status === 0 ? "error" : status >= 4 ? "read" : status === 3 ? "delivered" : status === 2 ? "server_ack" : null;
+        const detail = entry?.update?.messageStubParameters;
+        if (delivery) applyCampaignDelivery(key.id, delivery, new Date().toISOString(), Array.isArray(detail) ? detail.join(" ") : detail);
+        if (delivery === "error") console.warn("[WA MESSAGE REJECTED]", { id: key.id, recipient: maskJid(key.remoteJid), status, detail });
       }
     });
     sock.ev.on("connection.update", async update => {
