@@ -146,8 +146,11 @@ function maskJid(jid) {
 }
 function normalizePhone(value) {
   let digits = String(value || "").replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.startsWith("00") && digits.length > 11) digits = digits.slice(2);
+  if (digits.length === 11 && digits.startsWith("0")) digits = digits.slice(1);
   if (digits.length === 10) digits = "91" + digits;
-  if (digits.length < 11 || digits.length > 15) return null;
+  if (digits.length < 8 || digits.length > 15 || digits.startsWith("0")) return null;
   return digits;
 }
 
@@ -327,8 +330,11 @@ app.post("/api/contacts/preview", requireAuth, csvUpload.single("csv"), (req, re
   try { rows = parse(req.file.buffer, { columns: true, skip_empty_lines: true, bom: true, trim: true, relax_column_count: true }); }
   catch { return res.status(400).json({ error: "Could not read CSV. Use a valid CSV with Name (optional) and Mobile Number columns." }); }
   const first = rows[0] || {};
-  const nameKey = Object.keys(first).find(h => ["name", "fullname", "customername"].includes(h.toLowerCase().replace(/[\s_-]/g, "")));
-  const phoneKey = Object.keys(first).find(h => ["mobile", "mobilenumber", "phone", "phonenumber", "number"].includes(h.toLowerCase().replace(/[\s_-]/g, "")));
+  const normalizeHeader = value => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const nameHeaders = new Set(["name", "fullname", "customername", "contactname", "clientname", "leadname", "whatsappname", "pushname", "firstname"]);
+  const phoneHeaders = new Set(["mobile", "mobileno", "mobilenumber", "phone", "phoneno", "phonenumber", "number", "whatsapp", "whatsappno", "whatsappnumber", "contactnumber", "contactno"]);
+  const nameKey = Object.keys(first).find(h => nameHeaders.has(normalizeHeader(h)));
+  const phoneKey = Object.keys(first).find(h => phoneHeaders.has(normalizeHeader(h)));
   if (!phoneKey) return res.status(400).json({ error: "CSV must contain a Mobile Number / Phone column." });
   const contacts = [], seen = new Set();
   for (const row of rows) {
@@ -366,7 +372,10 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
   if (campaignRuns.has(userId)) return reject(409, "A campaign is already running for this workspace.");
   let contacts;
   try { contacts = JSON.parse(req.body.contacts || "[]"); } catch { return reject(400, "Invalid contacts data."); }
-  const message = String(req.body.message || "").trim().slice(0, 4000);
+  const message = String(req.body.message || "").trim().slice(0, 4096);
+  const delayMs = Math.min(60000, Math.max(1000, Number.parseInt(req.body.delayMs, 10) || 3000));
+  const randomizeDelay = req.body.randomizeDelay !== "false";
+  const stopOnError = req.body.stopOnError === "true";
   if (req.body.confirmOptIn !== "true") return reject(400, "Confirm that every recipient has opted in.");
   if (!Array.isArray(contacts) || contacts.length < 1 || contacts.length > MAX_CONTACTS) return reject(400, `Campaign must contain 1–${MAX_CONTACTS} contacts.`);
   if (!message && files.length === 0) return reject(400, "Add a message or at least one attachment.");
@@ -386,9 +395,9 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
   db.prepare("INSERT INTO campaigns (id,user_id,total,accepted,failed,status,created_at) VALUES (?,?,?,0,0,'running',?)").run(campaignId, userId, normalized.length, now);
   const insertItem = db.prepare("INSERT INTO campaign_items (campaign_id,user_id,name,phone,status,reason,updated_at) VALUES (?,?,?,?,?,?,?)");
   for (const c of normalized) insertItem.run(campaignId, userId, c.name, c.phone, "pending", null, now);
-  const run = { campaignId, stopRequested: false, files, userId };
+  const run = { campaignId, stopRequested: false, files, userId, delayMs, randomizeDelay, stopOnError };
   campaignRuns.set(userId, run);
-  res.json({ ok: true, campaignId, total: normalized.length, attachmentCount: files.length, totalAttachmentBytes: totalBytes, status: "running" });
+  res.json({ ok: true, campaignId, total: normalized.length, attachmentCount: files.length, totalAttachmentBytes: totalBytes, delayMs, randomizeDelay, stopOnError, status: "running" });
 
   (async () => {
     let accepted = 0, failed = 0, stopped = false;
@@ -401,7 +410,9 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
           db.prepare("UPDATE campaign_items SET status='failed',reason=?,updated_at=? WHERE id=? AND user_id=?").run("WhatsApp disconnected before this contact was processed.", new Date().toISOString(), item.id, userId);
           failed++; continue;
         }
-        const personalized = message.replace(/\{\{\s*name\s*\}\}/gi, item.name || "");
+        const personalized = message
+          .replace(/\{\{\s*name\s*\}\}/gi, item.name || "there")
+          .replace(/\{\{\s*phone\s*\}\}/gi, item.phone);
         let sentParts = 0, errors = [];
         try {
           const recipient = await resolveRecipientJid(liveClient.sock, item.phone);
@@ -447,7 +458,10 @@ app.post("/api/campaigns/send", requireAuth, (req, res, next) => campaignUpload.
           failed++;
         }
         db.prepare("UPDATE campaigns SET accepted=?,failed=? WHERE id=? AND user_id=?").run(accepted, failed, campaignId, userId);
-        if (!run.stopRequested) await new Promise(resolve => setTimeout(resolve, 1800));
+        if (!run.stopRequested) {
+          const jitter = run.randomizeDelay ? Math.floor(Math.random() * 2001) : 0;
+          await new Promise(resolve => setTimeout(resolve, run.delayMs + jitter));
+        }
       }
       if (run.stopRequested || stopped) {
         db.prepare("UPDATE campaign_items SET status='stopped',reason='Campaign stopped by user.',updated_at=? WHERE campaign_id=? AND user_id=? AND status='pending'").run(new Date().toISOString(), campaignId, userId);
